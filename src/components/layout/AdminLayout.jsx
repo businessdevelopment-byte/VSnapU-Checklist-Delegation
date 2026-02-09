@@ -117,18 +117,17 @@ export default function AdminLayout({ children, darkMode, toggleDarkMode }) {
       showFor: ["admin", "user"] // Only show for admin
     },
     {
+      href: "/dashboard/data/sales",
+      label: "Checklist",
+      icon: Database,
+      active: location.pathname === "/dashboard/data/sales",
+      showFor: ["admin", "user"] // Show for both roles
+    },
+    {
       href: "/dashboard/calendar",
       label: "Calendar",
       icon: Calendar,
       active: location.pathname === "/dashboard/calendar",
-      showFor: ["admin", "user"] // Show for both roles
-    },
-    {
-      href: "#",
-      label: "Data",
-      icon: Database,
-      active: location.pathname.includes("/dashboard/data"),
-      submenu: true,
       showFor: ["admin", "user"] // Show for both roles
     },
 
@@ -585,7 +584,7 @@ export default function AdminLayout({ children, darkMode, toggleDarkMode }) {
                 return `${greeting}, ${username ? username.toUpperCase() : "USER"}! Welcome On Board`
               })()}
             </span>
-            <span className="animate-bounce inline-block text-2xl md:text-xl">👋</span>
+            <span className="animate-bounce inline-block text-2xl md:text-xl3">👋</span>
           </h1>
           {/*<button
             onClick={() => setIsLicenseModalOpen(true)}
