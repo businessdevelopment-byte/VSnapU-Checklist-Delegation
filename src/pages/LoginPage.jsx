@@ -75,9 +75,7 @@ const LoginPage = () => {
 
             // Extract data from columns C, D, E (indices 2, 3, 4)
             const username = row.c[2]
-              ? String(row.c[2].v || "")
-                  .trim()
-                  .toLowerCase()
+              ? String(row.c[2].v || "").trim()
               : "";
             const password = row.c[3] ? String(row.c[3].v || "").trim() : "";
             const role = row.c[4] ? String(row.c[4].v || "").trim() : "user";
@@ -175,8 +173,8 @@ const LoginPage = () => {
           const cellValue =
             row.c && row.c[1]
               ? String(row.c[1].v || "")
-                  .trim()
-                  .toLowerCase()
+                .trim()
+                .toLowerCase()
               : "";
 
           if (cellValue === username.trim().toLowerCase()) {
@@ -236,7 +234,7 @@ const LoginPage = () => {
     setIsLoginLoading(true);
 
     try {
-      const trimmedUsername = formData.username.trim().toLowerCase();
+      const trimmedUsername = formData.username.trim();
       const trimmedPassword = formData.password.trim();
 
       //console.log("Login Attempt Details:")
@@ -414,8 +412,8 @@ const LoginPage = () => {
               {isLoginLoading
                 ? "Logging in..."
                 : isDataLoading
-                ? "Loading..."
-                : "Login"}
+                  ? "Loading..."
+                  : "Login"}
             </button>
           </div>
         </form>
@@ -434,11 +432,10 @@ const LoginPage = () => {
       {/* Toast Notification */}
       {toast.show && (
         <div
-          className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg transition-all duration-300 ${
-            toast.type === "success"
-              ? "bg-green-100 text-green-800 border-l-4 border-green-500"
-              : "bg-red-100 text-red-800 border-l-4 border-red-500"
-          }`}
+          className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg transition-all duration-300 ${toast.type === "success"
+            ? "bg-green-100 text-green-800 border-l-4 border-green-500"
+            : "bg-red-100 text-red-800 border-l-4 border-red-500"
+            }`}
         >
           {toast.message}
         </div>

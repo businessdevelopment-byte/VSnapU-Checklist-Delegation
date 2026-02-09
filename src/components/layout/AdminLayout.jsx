@@ -566,9 +566,9 @@ export default function AdminLayout({ children, darkMode, toggleDarkMode }) {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center justify-between border-b border-blue-200 bg-white px-4 md:px-6">
-          <div className="flex md:hidden w-8"></div>
-          <h1 className="text-xl font-bold flex items-center gap-2">
+        <header className="flex h-14 items-center justify-center md:justify-between border-b border-blue-200 bg-white px-4 md:px-6 relative md:static">
+          <div className="flex md:hidden w-8 absolute left-4"></div>
+          <h1 className="text-sm md:text-xl font-bold flex items-center justify-center md:justify-start gap-2 w-full md:w-auto px-12 md:px-0">
             <span style={{
               background: 'linear-gradient(to right, #9333EA, #DB2777)',
               WebkitBackgroundClip: 'text',
@@ -585,7 +585,7 @@ export default function AdminLayout({ children, darkMode, toggleDarkMode }) {
                 return `${greeting}, ${username ? username.toUpperCase() : "USER"}! Welcome On Board`
               })()}
             </span>
-            <span className="animate-bounce inline-block">👋</span>
+            <span className="animate-bounce inline-block text-2xl md:text-xl">👋</span>
           </h1>
           {/*<button
             onClick={() => setIsLicenseModalOpen(true)}
