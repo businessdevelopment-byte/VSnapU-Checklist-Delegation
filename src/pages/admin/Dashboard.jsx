@@ -48,6 +48,9 @@ export default function AdminDashboard() {
     completedRatingThreePlus: 0
   })
 
+  // State to store all staff profile images (username -> imageUrl)
+  const [staffImages, setStaffImages] = useState({});
+
   // Store the current date for overdue calculation
   const [currentDate, setCurrentDate] = useState(new Date())
 
@@ -194,8 +197,75 @@ export default function AdminDashboard() {
     const username = sessionStorage.getItem('username');
     if (username) {
       fetchUserProfileFromSheets(username);
+      fetchAllStaffProfiles(); // Fetch all staff images
     }
   }, []);
+
+  // Function to fetch all staff profile images
+  const fetchAllStaffProfiles = async () => {
+    try {
+      // 1. Fetch from Master Sheet
+      const masterResponse = await fetch(`https://docs.google.com/spreadsheets/d/1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0/gviz/tq?tqx=out:json&sheet=master`);
+
+      const imagesMap = {};
+
+      if (masterResponse.ok) {
+        const masterText = await masterResponse.text();
+        const masterJsonStart = masterText.indexOf('{');
+        const masterJsonEnd = masterText.lastIndexOf('}');
+        const masterJsonString = masterText.substring(masterJsonStart, masterJsonEnd + 1);
+        const masterData = JSON.parse(masterJsonString);
+
+        // Iterate through rows to get username (Col C) and image (Col H)
+        masterData.table.rows.forEach((row, index) => {
+          if (index === 0) return; // Skip header
+          const username = getCellValue(row, 2); // Column C
+          const imageUrl = getCellValue(row, 7); // Column H
+
+          if (username && imageUrl) {
+            const displayableUrl = getDisplayableImageUrl(imageUrl);
+            if (displayableUrl) {
+              imagesMap[username.toLowerCase()] = displayableUrl;
+            }
+          }
+        });
+      }
+
+      // 2. Fetch from WhatsApp Sheet (to fill gaps or overwrite if needed - prioritizing Master generally, but here treating as supplement)
+      // Actually, let's stick to Master as primary source. If needed, we can check Whatsapp too.
+      // Let's check Whatsapp too for completeness as per user profile logic
+      const whatsappResponse = await fetch(`https://docs.google.com/spreadsheets/d/1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0/gviz/tq?tqx=out:json&sheet=Whatsapp`);
+
+      if (whatsappResponse.ok) {
+        const whatsappText = await whatsappResponse.text();
+        const whatsappJsonStart = whatsappText.indexOf('{');
+        const whatsappJsonEnd = whatsappText.lastIndexOf('}');
+        const whatsappJsonString = whatsappText.substring(whatsappJsonStart, whatsappJsonEnd + 1);
+        const whatsappData = JSON.parse(whatsappJsonString);
+
+        whatsappData.table.rows.forEach((row, index) => {
+          if (index === 0) return;
+          const username = getCellValue(row, 2); // Column C
+          const imageUrl = getCellValue(row, 7); // Column H
+
+          // Only add if we don't already have an image from Master sheet (Master takes precedence usually, or maybe Whatsapp is newer?
+          // Based on fetchUserProfileFromSheets logic, it tries Master first, then Whatsapp. So we prioritize Master.
+          if (username && imageUrl && !imagesMap[username.toLowerCase()]) {
+            const displayableUrl = getDisplayableImageUrl(imageUrl);
+            if (displayableUrl) {
+              imagesMap[username.toLowerCase()] = displayableUrl;
+            }
+          }
+        });
+      }
+
+      // Update state
+      setStaffImages(imagesMap);
+
+    } catch (error) {
+      console.error("Error fetching staff profiles:", error);
+    }
+  };
 
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
@@ -567,6 +637,12 @@ export default function AdminDashboard() {
             if (rowIndex <= 5)
               //console.log(`Row ${rowIndex + 1}: Skipped due to empty/null task ID`);
               return null;
+          }
+
+          // EXCLUDE "Leave" entries in Column Q (index 16)
+          const columnQValue = getCellValue(row, 16);
+          if (columnQValue && columnQValue.toString().trim().toLowerCase() === "leave") {
+            return null; // Skip this task completely
           }
 
           // Convert task ID to string for consistency
@@ -1267,8 +1343,8 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-3">
             <button
               className={`py-3 text-center font-medium transition-colors ${taskView === "recent"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                 }`}
               onClick={() => setTaskView("recent")}
             >
@@ -1276,8 +1352,8 @@ export default function AdminDashboard() {
             </button>
             <button
               className={`py-3 text-center font-medium transition-colors ${taskView === "upcoming"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                 }`}
               onClick={() => setTaskView("upcoming")}
             >
@@ -1287,8 +1363,8 @@ export default function AdminDashboard() {
             </button>
             <button
               className={`py-3 text-center font-medium transition-colors ${taskView === "overdue"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                 }`}
               onClick={() => setTaskView("overdue")}
             >
@@ -1448,7 +1524,7 @@ export default function AdminDashboard() {
                   </span>
                 </div>
               </div>
-              <div className="w-full h-2 bg-gray-200 rounded-full mt-2">
+              <div className="w-full h-2 bg-gray-100/50 rounded-full mt-2 overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-green-500 to-amber-500 rounded-full"
                   style={{ width: `${departmentData.completionRate}%` }}
@@ -1458,78 +1534,65 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="space-y-4">
-          <div className="bg-purple-100 rounded-md p-1 flex space-x-1">
-            <button
-              onClick={() => setActiveTab("overview")}
-              className={`flex-1 py-2 text-center rounded-md transition-colors ${activeTab === "overview"
-                  ? "bg-purple-600 text-white"
-                  : "text-purple-700 hover:bg-purple-200"
-                }`}
-            >
-              Overview
-            </button>
-            <button
-              onClick={() => setActiveTab("mis")}
-              className={`flex-1 py-2 text-center rounded-md transition-colors ${activeTab === "mis"
-                  ? "bg-purple-600 text-white"
-                  : "text-purple-700 hover:bg-purple-200"
-                }`}
-            >
-              MIS Report
-            </button>
-            <button
-              onClick={() => setActiveTab("staff")}
-              className={`flex-1 py-2 text-center rounded-md transition-colors ${activeTab === "staff"
-                  ? "bg-purple-600 text-white"
-                  : "text-purple-700 hover:bg-purple-200"
-                }`}
-            >
-              Staff Performance
-            </button>
+        {/* Tabs - Segmented Control Style */}
+        <div className="flex flex-col space-y-6">
+          <div className="bg-gray-100/80 p-1.5 rounded-xl inline-flex self-start">
+            {["overview", "mis", "staff"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-6 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${activeTab === tab
+                  ? "bg-white text-purple-700 shadow-sm ring-1 ring-black/5"
+                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
+                  }`}
+              >
+                {tab === "overview" && "Overview"}
+                {tab === "mis" && "MIS Report"}
+                {tab === "staff" && "Staff Performance"}
+              </button>
+            ))}
           </div>
 
           {activeTab === "overview" && (
-            <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <div className="lg:col-span-4 rounded-lg border border-purple-200 shadow-md bg-white">
-                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-100 p-4">
-                    <h3 className="text-purple-700 font-medium">
+            <div className="space-y-6">
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
+                <div className="lg:col-span-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-lg hover:shadow-purple-500/5 transition-all duration-300">
+                  <div className="p-6 border-b border-gray-50">
+                    <h3 className="text-gray-900 font-semibold text-lg">
                       Tasks Overview
                     </h3>
-                    <p className="text-purple-600 text-sm">
+                    <p className="text-gray-500 text-sm mt-1">
                       Task completion rate over time
                     </p>
                   </div>
-                  <div className="p-4 pl-2">
+                  <div className="p-6">
                     <TasksOverviewChart />
                   </div>
                 </div>
-                <div className="lg:col-span-3 rounded-lg border border-purple-200 shadow-md bg-white">
-                  <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-100 p-4">
-                    <h3 className="text-purple-700 font-medium">
+                <div className="lg:col-span-3 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-lg hover:shadow-purple-500/5 transition-all duration-300">
+                  <div className="p-6 border-b border-gray-50">
+                    <h3 className="text-gray-900 font-semibold text-lg">
                       Task Status
                     </h3>
-                    <p className="text-purple-600 text-sm">
+                    <p className="text-gray-500 text-sm mt-1">
                       Distribution of tasks by status
                     </p>
                   </div>
-                  <div className="p-4">
+                  <div className="p-6">
                     <TasksCompletionChart />
                   </div>
                 </div>
               </div>
-              <div className="rounded-lg border border-purple-200 shadow-md bg-white">
-                <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-100 p-4">
-                  <h3 className="text-purple-700 font-medium">
+              <div className="rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-lg hover:shadow-purple-500/5 transition-all duration-300">
+                <div className="p-6 border-b border-gray-50">
+                  <h3 className="text-gray-900 font-semibold text-lg">
                     Staff Task Summary
                   </h3>
-                  <p className="text-purple-600 text-sm">
+                  <p className="text-gray-500 text-sm mt-1">
                     Overview of tasks assigned to each staff member
                   </p>
                 </div>
-                <div className="p-4">
+                <div className="p-6">
                   <StaffTasksTable />
                 </div>
               </div>
@@ -1538,21 +1601,23 @@ export default function AdminDashboard() {
 
           {/* UPDATED: Modified MIS Report section for delegation mode */}
           {activeTab === "mis" && (
-            <div className="rounded-lg border border-purple-200 shadow-md bg-white">
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-100 p-4">
-                <h3 className="text-purple-700 font-medium">MIS Report</h3>
-                <p className="text-purple-600 text-sm">
-                  {dashboardType === "delegation"
-                    ? `${isAdminUser()
-                      ? "Detailed delegation analytics - all tasks from sheet data"
-                      : "Detailed delegation analytics - your tasks only"}`
-                    : `${isAdminUser()
-                      ? "Detailed task analytics and performance metrics"
-                      : "Your task analytics and performance metrics"}`
-                  }
-                </p>
+            <div className="rounded-2xl border border-gray-100 bg-white shadow-sm">
+              <div className="p-6 border-b border-gray-50 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h3 className="text-gray-900 font-semibold text-lg">MIS Report</h3>
+                  <p className="text-gray-500 text-sm mt-1">
+                    {dashboardType === "delegation"
+                      ? `${isAdminUser()
+                        ? "Detailed delegation analytics - all tasks from sheet data"
+                        : "Detailed delegation analytics - your tasks only"}`
+                      : `${isAdminUser()
+                        ? "Detailed task analytics and performance metrics"
+                        : "Your task analytics and performance metrics"}`
+                    }
+                  </p>
+                </div>
               </div>
-              <div className="p-4">
+              <div className="p-6">
                 <div className="space-y-8">
                   {/* UPDATED: Only show date range selection for checklist mode */}
                   {dashboardType !== "delegation" && (
@@ -1609,60 +1674,91 @@ export default function AdminDashboard() {
                   )}
 
                   {/* UPDATED: Overall stats with different displays for delegation vs checklist */}
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium text-purple-600">
-                        Total Tasks Assigned
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="group rounded-2xl bg-white p-6 border border-gray-100 shadow-sm hover:shadow-lg hover:shadow-purple-500/5 transition-all duration-300 hover:-translate-y-1">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-purple-50 rounded-xl group-hover:bg-purple-100 transition-colors">
+                          <ListTodo className="h-6 w-6 text-purple-600" />
+                        </div>
+                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-purple-50 text-purple-700">
+                          {dashboardType === "delegation" ? "All Tasks" : "Total"}
+                        </span>
                       </div>
-                      <div className="text-3xl font-bold text-purple-700">
-                        {dashboardType === "delegation"
-                          ? departmentData.totalTasks
-                          : dateRange.filtered
-                            ? filteredDateStats.totalTasks
-                            : departmentData.totalTasks}
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-gray-500">
+                          Total Tasks Assigned
+                        </p>
+                        <h3 className="text-3xl font-bold text-gray-900 tracking-tight">
+                          {dashboardType === "delegation"
+                            ? departmentData.totalTasks
+                            : dateRange.filtered
+                              ? filteredDateStats.totalTasks
+                              : departmentData.totalTasks}
+                        </h3>
                       </div>
                       {dashboardType === "delegation" ? (
-                        <p className="text-xs text-purple-600">
-                          All tasks from delegation sheet
+                        <p className="text-xs text-gray-400 mt-2 font-medium">
+                          Delegation sheet
                         </p>
                       ) : (
                         dateRange.filtered && (
-                          <p className="text-xs text-purple-600">
-                            For period: {formatLocalDate(dateRange.startDate)}{" "}
-                            - {formatLocalDate(dateRange.endDate)}
+                          <p className="text-xs text-purple-600 mt-2 font-medium">
+                            {formatLocalDate(dateRange.startDate)} - {formatLocalDate(dateRange.endDate)}
                           </p>
                         )
                       )}
                     </div>
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium text-purple-600">
-                        Tasks Completed
+
+                    <div className="group rounded-2xl bg-white p-6 border border-gray-100 shadow-sm hover:shadow-lg hover:shadow-green-500/5 transition-all duration-300 hover:-translate-y-1">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-green-50 rounded-xl group-hover:bg-green-100 transition-colors">
+                          <CheckCircle2 className="h-6 w-6 text-green-600" />
+                        </div>
+                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-50 text-green-700">
+                          Completed
+                        </span>
                       </div>
-                      <div className="text-3xl font-bold text-purple-700">
-                        {dashboardType === "delegation"
-                          ? departmentData.completedTasks
-                          : dateRange.filtered
-                            ? filteredDateStats.completedTasks
-                            : departmentData.completedTasks}
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-gray-500">
+                          Tasks Completed
+                        </p>
+                        <h3 className="text-3xl font-bold text-gray-900 tracking-tight">
+                          {dashboardType === "delegation"
+                            ? departmentData.completedTasks
+                            : dateRange.filtered
+                              ? filteredDateStats.completedTasks
+                              : departmentData.completedTasks}
+                        </h3>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium text-purple-600">
-                        {dashboardType === "delegation"
-                          ? "Tasks Pending"
-                          : "Tasks Pending/Overdue"}
+
+                    <div className="group rounded-2xl bg-white p-6 border border-gray-100 shadow-sm hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 hover:-translate-y-1">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-3 bg-amber-50 rounded-xl group-hover:bg-amber-100 transition-colors">
+                          <Clock className="h-6 w-6 text-amber-600" />
+                        </div>
+                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">
+                          {dashboardType === "delegation" ? "In Progress" : "Pending"}
+                        </span>
                       </div>
-                      <div className="text-3xl font-bold text-purple-700">
-                        {dashboardType === "delegation"
-                          ? departmentData.pendingTasks
-                          : dateRange.filtered
-                            ? `${filteredDateStats.pendingTasks} / ${filteredDateStats.overdueTasks}`
-                            : `${departmentData.pendingTasks} / ${departmentData.overdueTasks}`}
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-gray-500">
+                          {dashboardType === "delegation"
+                            ? "Tasks Pending"
+                            : "Pending / Overdue"}
+                        </p>
+                        <h3 className="text-3xl font-bold text-gray-900 tracking-tight">
+                          {dashboardType === "delegation"
+                            ? departmentData.pendingTasks
+                            : dateRange.filtered
+                              ? `${filteredDateStats.pendingTasks} / ${filteredDateStats.overdueTasks}`
+                              : `${departmentData.pendingTasks} / ${departmentData.overdueTasks}`}
+                        </h3>
                       </div>
-                      <div className="text-xs text-purple-600">
+                      <div className="text-xs text-gray-400 mt-2 font-medium">
                         {dashboardType === "delegation"
-                          ? "All incomplete tasks"
-                          : "Pending (all incomplete) / Overdue (past dates only)"}
+                          ? "All incomplete"
+                          : "Incomplete / Past due"}
                       </div>
                     </div>
                   </div>
@@ -1757,16 +1853,16 @@ export default function AdminDashboard() {
                                 className="h-full rounded-full flex items-center justify-end px-3 text-xs font-medium text-white"
                                 style={{
                                   width: `${dashboardType === "delegation"
-                                      ? departmentData.completionRate
-                                      : dateRange.filtered
-                                        ? filteredDateStats.completionRate
-                                        : departmentData.completionRate
+                                    ? departmentData.completionRate
+                                    : dateRange.filtered
+                                      ? filteredDateStats.completionRate
+                                      : departmentData.completionRate
                                     }%`,
                                   background: `linear-gradient(to right, #10b981 ${(dashboardType === "delegation"
-                                      ? departmentData.completionRate
-                                      : dateRange.filtered
-                                        ? filteredDateStats.completionRate
-                                        : departmentData.completionRate) * 0.8
+                                    ? departmentData.completionRate
+                                    : dateRange.filtered
+                                      ? filteredDateStats.completionRate
+                                      : departmentData.completionRate) * 0.8
                                     }%, #f59e0b ${(dashboardType === "delegation"
                                       ? departmentData.completionRate
                                       : dateRange.filtered
@@ -1805,12 +1901,12 @@ export default function AdminDashboard() {
           )}
 
           {activeTab === "staff" && (
-            <div className="rounded-lg border border-purple-200 shadow-md bg-white">
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-100 p-4">
-                <h3 className="text-purple-700 font-medium">
+            <div className="rounded-2xl border border-gray-100 bg-white shadow-sm">
+              <div className="p-6 border-b border-gray-50">
+                <h3 className="text-gray-900 font-semibold text-lg">
                   Staff Performance
                 </h3>
-                <p className="text-purple-600 text-sm">
+                <p className="text-gray-500 text-sm mt-1">
                   {dashboardType === "delegation"
                     ? `${isAdminUser()
                       ? "Task completion rates by staff member (all delegation sheet data)"
@@ -1821,7 +1917,7 @@ export default function AdminDashboard() {
                   }
                 </p>
               </div>
-              <div className="p-4">
+              <div className="p-6">
                 <div className="space-y-8">
                   {departmentData.staffMembers.length > 0 ? (
                     <>
@@ -1836,199 +1932,211 @@ export default function AdminDashboard() {
                         return (
                           <>
                             {/* High performers section (70% or above) */}
-                            <div className="rounded-md border border-green-200">
-                              <div className="p-4 bg-gradient-to-r from-green-50 to-green-100 border-b border-green-200">
-                                <h3 className="text-lg font-medium text-green-700">
-                                  Top Performers
-                                </h3>
-                                <p className="text-sm text-green-600">
-                                  {dashboardType === "delegation"
-                                    ? "Staff with high task completion rates (all delegation data)"
-                                    : "Staff with high task completion rates (tasks up to today only)"}
-                                </p>
+                            <div className="space-y-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="h-2 w-2 rounded-full bg-green-500"></div>
+                                <h3 className="text-lg font-semibold text-gray-900">Top Performers</h3>
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-100">70%+</span>
                               </div>
-                              <div className="p-4">
-                                <div className="space-y-4">
-                                  {sortedStaffMembers
-                                    .filter((staff) => staff.progress >= 70)
-                                    .map((staff) => (
-                                      <div
-                                        key={staff.id}
-                                        className="flex items-center justify-between p-3 border border-green-100 rounded-md bg-green-50"
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <div className="h-10 w-10 rounded-full bg-gradient-to-r from-green-500 to-teal-500 flex items-center justify-center">
-                                            <span className="text-sm font-medium text-white">
+
+                              <div className="grid gap-4 md:grid-cols-2">
+                                {sortedStaffMembers
+                                  .filter((staff) => staff.progress >= 70)
+                                  .map((staff) => (
+                                    <div
+                                      key={staff.id}
+                                      className="group flex items-center justify-between p-4 border border-gray-100 rounded-xl bg-white shadow-sm hover:shadow-lg hover:shadow-green-500/10 transition-all duration-300 hover:-translate-y-1"
+                                    >
+                                      <div className="flex items-center gap-4">
+                                        <div className="h-12 w-12 rounded-full flex items-center justify-center border border-green-100 group-hover:border-green-200 transition-colors overflow-hidden bg-green-50">
+                                          {staffImages[staff.name.toLowerCase()] ? (
+                                            <img
+                                              src={staffImages[staff.name.toLowerCase()]}
+                                              alt={staff.name}
+                                              className="h-full w-full object-cover"
+                                              onError={(e) => {
+                                                e.target.onerror = null; // Prevent infinite loop
+                                                e.target.style.display = 'none'; // Hide broken image
+                                                e.target.parentNode.classList.add('bg-green-50'); // Ensure background is visible
+                                                e.target.parentNode.innerText = staff.name.charAt(0); // Fallback to initial
+                                                e.target.parentNode.classList.add('text-lg', 'font-bold', 'text-green-600'); // Add styling classes
+                                              }}
+                                            />
+                                          ) : (
+                                            <span className="text-lg font-bold text-green-600">
                                               {staff.name.charAt(0)}
                                             </span>
-                                          </div>
-                                          <div>
-                                            <p className="font-medium text-green-700">
-                                              {staff.name}
-                                            </p>
-                                            <p className="text-xs text-green-600">
-                                              {staff.completedTasks} of{" "}
-                                              {staff.totalTasks} tasks
-                                              completed
-                                            </p>
-                                          </div>
+                                          )}
                                         </div>
-                                        <div className="text-lg font-bold text-green-600">
+                                        <div>
+                                          <p className="font-semibold text-gray-900">
+                                            {staff.name}
+                                          </p>
+                                          <p className="text-xs text-gray-500 mt-0.5">
+                                            {staff.completedTasks} / {staff.totalTasks} tasks
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col items-end">
+                                        <div className="text-xl font-bold text-green-600">
                                           {staff.progress}%
                                         </div>
+                                        <span className="text-[10px] font-medium text-green-600 uppercase tracking-wider">Completed</span>
                                       </div>
-                                    ))}
-                                  {sortedStaffMembers.filter(
-                                    (staff) => staff.progress >= 70
-                                  ).length === 0 && (
-                                      <div className="text-center p-4 text-gray-500">
-                                        <p>
-                                          No staff members with high completion
-                                          rates found.
-                                        </p>
-                                      </div>
-                                    )}
-                                </div>
+                                    </div>
+                                  ))}
                               </div>
+                              {sortedStaffMembers.filter(
+                                (staff) => staff.progress >= 70
+                              ).length === 0 && (
+                                  <div className="text-center p-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                                    <p className="text-gray-500">No staff members in this category.</p>
+                                  </div>
+                                )}
                             </div>
 
                             {/* Mid performers section (40-69%) */}
-                            <div className="rounded-md border border-yellow-200">
-                              <div className="p-4 bg-gradient-to-r from-yellow-50 to-yellow-100 border-b border-yellow-200">
-                                <h3 className="text-lg font-medium text-yellow-700">
-                                  Average Performers
-                                </h3>
-                                <p className="text-sm text-yellow-600">
-                                  {dashboardType === "delegation"
-                                    ? "Staff with moderate task completion rates (all delegation data)"
-                                    : "Staff with moderate task completion rates (tasks up to today only)"}
-                                </p>
+                            <div className="space-y-4 pt-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="h-2 w-2 rounded-full bg-amber-500"></div>
+                                <h3 className="text-lg font-semibold text-gray-900">Average Performers</h3>
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">40-69%</span>
                               </div>
-                              <div className="p-4">
-                                <div className="space-y-4">
-                                  {sortedStaffMembers
-                                    .filter(
-                                      (staff) =>
-                                        staff.progress >= 40 &&
-                                        staff.progress < 70
-                                    )
-                                    .map((staff) => (
-                                      <div
-                                        key={staff.id}
-                                        className="flex items-center justify-between p-3 border border-yellow-100 rounded-md bg-yellow-50"
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <div className="h-10 w-10 rounded-full bg-gradient-to-r from-yellow-500 to-amber-500 flex items-center justify-center">
-                                            <span className="text-sm font-medium text-white">
-                                              {staff.name.charAt(0)}
-                                            </span>
-                                          </div>
-                                          <div>
-                                            <p className="font-medium text-yellow-700">
-                                              {staff.name}
-                                            </p>
-                                            <p className="text-xs text-yellow-600">
-                                              {staff.completedTasks} of{" "}
-                                              {staff.totalTasks} tasks
-                                              completed
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <div className="text-lg font-bold text-yellow-600">
-                                          {staff.progress}%
-                                        </div>
-                                      </div>
-                                    ))}
-                                  {sortedStaffMembers.filter(
+
+                              <div className="grid gap-4 md:grid-cols-2">
+                                {sortedStaffMembers
+                                  .filter(
                                     (staff) =>
                                       staff.progress >= 40 &&
                                       staff.progress < 70
-                                  ).length === 0 && (
-                                      <div className="text-center p-4 text-gray-500">
-                                        <p>
-                                          No staff members with moderate
-                                          completion rates found.
-                                        </p>
+                                  )
+                                  .map((staff) => (
+                                    <div
+                                      key={staff.id}
+                                      className="group flex items-center justify-between p-4 border border-gray-100 rounded-xl bg-white shadow-sm hover:shadow-lg hover:shadow-amber-500/10 transition-all duration-300 hover:-translate-y-1"
+                                    >
+                                      <div className="flex items-center gap-4">
+                                        <div className="h-12 w-12 rounded-full flex items-center justify-center border border-amber-100 group-hover:border-amber-200 transition-colors overflow-hidden bg-amber-50">
+                                          {staffImages[staff.name.toLowerCase()] ? (
+                                            <img
+                                              src={staffImages[staff.name.toLowerCase()]}
+                                              alt={staff.name}
+                                              className="h-full w-full object-cover"
+                                              onError={(e) => {
+                                                e.target.onerror = null;
+                                                e.target.style.display = 'none';
+                                                e.target.parentNode.classList.add('bg-amber-50');
+                                                e.target.parentNode.innerText = staff.name.charAt(0);
+                                                e.target.parentNode.classList.add('text-lg', 'font-bold', 'text-amber-600');
+                                              }}
+                                            />
+                                          ) : (
+                                            <span className="text-lg font-bold text-amber-600">
+                                              {staff.name.charAt(0)}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div>
+                                          <p className="font-semibold text-gray-900">
+                                            {staff.name}
+                                          </p>
+                                          <p className="text-xs text-gray-500 mt-0.5">
+                                            {staff.completedTasks} / {staff.totalTasks} tasks
+                                          </p>
+                                        </div>
                                       </div>
-                                    )}
-                                </div>
+                                      <div className="flex flex-col items-end">
+                                        <div className="text-xl font-bold text-amber-600">
+                                          {staff.progress}%
+                                        </div>
+                                        <span className="text-[10px] font-medium text-amber-600 uppercase tracking-wider">Average</span>
+                                      </div>
+                                    </div>
+                                  ))}
                               </div>
+                              {sortedStaffMembers.filter(
+                                (staff) =>
+                                  staff.progress >= 40 &&
+                                  staff.progress < 70
+                              ).length === 0 && (
+                                  <div className="text-center p-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                                    <p className="text-gray-500">No staff members in this category.</p>
+                                  </div>
+                                )}
                             </div>
 
                             {/* Low performers section (below 40%) */}
-                            <div className="rounded-md border border-red-200">
-                              <div className="p-4 bg-gradient-to-r from-red-50 to-red-100 border-b border-red-200">
-                                <h3 className="text-lg font-medium text-red-700">
-                                  Needs Improvement
-                                </h3>
-                                <p className="text-sm text-red-600">
-                                  {dashboardType === "delegation"
-                                    ? "Staff with lower task completion rates (all delegation data)"
-                                    : "Staff with lower task completion rates (tasks up to today only)"}
-                                </p>
+                            <div className="space-y-4 pt-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="h-2 w-2 rounded-full bg-red-500"></div>
+                                <h3 className="text-lg font-semibold text-gray-900">Needs Improvement</h3>
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-100">&lt;40%</span>
                               </div>
-                              <div className="p-4">
-                                <div className="space-y-4">
-                                  {sortedStaffMembers
-                                    .filter((staff) => staff.progress < 40)
-                                    .map((staff) => (
-                                      <div
-                                        key={staff.id}
-                                        className="flex items-center justify-between p-3 border border-red-100 rounded-md bg-red-50"
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <div className="h-10 w-10 rounded-full bg-gradient-to-r from-red-500 to-pink-500 flex items-center justify-center">
-                                            <span className="text-sm font-medium text-white">
+
+                              <div className="grid gap-4 md:grid-cols-2">
+                                {sortedStaffMembers
+                                  .filter((staff) => staff.progress < 40)
+                                  .map((staff) => (
+                                    <div
+                                      key={staff.id}
+                                      className="group flex items-center justify-between p-4 border border-gray-100 rounded-xl bg-white shadow-sm hover:shadow-lg hover:shadow-red-500/10 transition-all duration-300 hover:-translate-y-1"
+                                    >
+                                      <div className="flex items-center gap-4">
+                                        <div className="h-12 w-12 rounded-full flex items-center justify-center border border-red-100 group-hover:border-red-200 transition-colors overflow-hidden bg-red-50">
+                                          {staffImages[staff.name.toLowerCase()] ? (
+                                            <img
+                                              src={staffImages[staff.name.toLowerCase()]}
+                                              alt={staff.name}
+                                              className="h-full w-full object-cover"
+                                              onError={(e) => {
+                                                e.target.onerror = null;
+                                                e.target.style.display = 'none';
+                                                e.target.parentNode.classList.add('bg-red-50');
+                                                e.target.parentNode.innerText = staff.name.charAt(0);
+                                                e.target.parentNode.classList.add('text-lg', 'font-bold', 'text-red-600');
+                                              }}
+                                            />
+                                          ) : (
+                                            <span className="text-lg font-bold text-red-600">
                                               {staff.name.charAt(0)}
                                             </span>
-                                          </div>
-                                          <div>
-                                            <p className="font-medium text-red-700">
-                                              {staff.name}
-                                            </p>
-                                            <p className="text-xs text-red-600">
-                                              {staff.completedTasks} of{" "}
-                                              {staff.totalTasks} tasks
-                                              completed
-                                            </p>
-                                          </div>
+                                          )}
                                         </div>
-                                        <div className="text-lg font-bold text-red-600">
+                                        <div>
+                                          <p className="font-semibold text-gray-900">
+                                            {staff.name}
+                                          </p>
+                                          <p className="text-xs text-gray-500 mt-0.5">
+                                            {staff.completedTasks} / {staff.totalTasks} tasks
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col items-end">
+                                        <div className="text-xl font-bold text-red-600">
                                           {staff.progress}%
                                         </div>
+                                        <span className="text-[10px] font-medium text-red-600 uppercase tracking-wider">Low</span>
                                       </div>
-                                    ))}
-                                  {sortedStaffMembers.filter(
-                                    (staff) => staff.progress < 40
-                                  ).length === 0 && (
-                                      <div className="text-center p-4 text-gray-500">
-                                        <p>
-                                          No staff members with low completion
-                                          rates found.
-                                        </p>
-                                      </div>
-                                    )}
-                                </div>
+                                    </div>
+                                  ))}
                               </div>
+                              {sortedStaffMembers.filter(
+                                (staff) => staff.progress < 40
+                              ).length === 0 && (
+                                  <div className="text-center p-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                                    <p className="text-gray-500">No staff members in this category.</p>
+                                  </div>
+                                )}
                             </div>
 
                             {/* No assigned tasks section */}
                             {departmentData.staffMembers.filter(
                               (staff) => staff.totalTasks === 0
                             ).length > 0 && (
-                                <div className="rounded-md border border-gray-200">
-                                  <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                                    <h3 className="text-lg font-medium text-gray-700">
-                                      No Tasks Assigned
-                                    </h3>
-                                    <p className="text-sm text-gray-600">
-                                      {dashboardType === "delegation"
-                                        ? "Staff with no tasks in delegation sheet"
-                                        : "Staff with no tasks assigned for current period"}
-                                    </p>
-                                  </div>
-                                  <div className="p-4">
-                                    <div className="space-y-4">
+                                <div className="pt-4">
+                                  <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-6">
+                                    <h3 className="text-lg font-semibold text-gray-700 mb-4">No Tasks Assigned</h3>
+                                    <div className="grid gap-4 md:grid-cols-2">
                                       {departmentData.staffMembers
                                         .filter(
                                           (staff) => staff.totalTasks === 0
@@ -2036,26 +2144,39 @@ export default function AdminDashboard() {
                                         .map((staff) => (
                                           <div
                                             key={staff.id}
-                                            className="flex items-center justify-between p-3 border border-gray-100 rounded-md bg-gray-50"
+                                            className="flex items-center justify-between p-4 border border-gray-200 rounded-xl bg-white"
                                           >
-                                            <div className="flex items-center gap-2">
-                                              <div className="h-10 w-10 rounded-full bg-gradient-to-r from-gray-500 to-gray-600 flex items-center justify-center">
-                                                <span className="text-sm font-medium text-white">
-                                                  {staff.name.charAt(0)}
-                                                </span>
+                                            <div className="flex items-center gap-4">
+                                              <div className="h-10 w-10 rounded-full flex items-center justify-center bg-gray-100 overflow-hidden">
+                                                {staffImages[staff.name.toLowerCase()] ? (
+                                                  <img
+                                                    src={staffImages[staff.name.toLowerCase()]}
+                                                    alt={staff.name}
+                                                    className="h-full w-full object-cover"
+                                                    onError={(e) => {
+                                                      e.target.onerror = null;
+                                                      e.target.style.display = 'none';
+                                                      e.target.parentNode.classList.add('bg-gray-100');
+                                                      e.target.parentNode.innerText = staff.name.charAt(0);
+                                                      e.target.parentNode.classList.add('text-sm', 'font-bold', 'text-gray-500');
+                                                    }}
+                                                  />
+                                                ) : (
+                                                  <span className="text-sm font-bold text-gray-500">
+                                                    {staff.name.charAt(0)}
+                                                  </span>
+                                                )}
                                               </div>
                                               <div>
                                                 <p className="font-medium text-gray-700">
                                                   {staff.name}
                                                 </p>
-                                                <p className="text-xs text-gray-600">
-                                                  {dashboardType === "delegation"
-                                                    ? "No tasks in delegation sheet"
-                                                    : "No tasks assigned up to today"}
+                                                <p className="text-xs text-gray-500">
+                                                  No tasks
                                                 </p>
                                               </div>
                                             </div>
-                                            <div className="text-lg font-bold text-gray-600">
+                                            <div className="text-sm font-bold text-gray-400">
                                               N/A
                                             </div>
                                           </div>
@@ -2069,8 +2190,8 @@ export default function AdminDashboard() {
                       })()}
                     </>
                   ) : (
-                    <div className="text-center p-8 text-gray-500">
-                      <p>
+                    <div className="text-center p-12">
+                      <p className="text-gray-500">
                         {dashboardType === "delegation"
                           ? "No delegation data available."
                           : "Loading staff data..."}
@@ -2083,83 +2204,85 @@ export default function AdminDashboard() {
           )}
         </div>
       </div>
-      {showImageUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Upload Profile Image
-              </h3>
-              <button
-                onClick={() => {
-                  setShowImageUploadModal(false);
-                  setSelectedFile(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Image File
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileSelect}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Supported formats: JPG, PNG, GIF (Max 10MB)
-                </p>
-              </div>
-
-              {selectedFile && (
-                <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <Upload className="h-5 w-5 text-purple-600" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedFile.name}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex space-x-3 pt-4">
+      {
+        showImageUploadModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Upload Profile Image
+                </h3>
                 <button
                   onClick={() => {
                     setShowImageUploadModal(false);
                     setSelectedFile(null);
                   }}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  Cancel
+                  <X className="h-6 w-6" />
                 </button>
-                <button
-                  onClick={uploadImageAndUpdateWhatsApp}
-                  disabled={!selectedFile || uploadingImage}
-                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                >
-                  {uploadingImage ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Uploading...
-                    </>
-                  ) : (
-                    "Upload Image"
-                  )}
-                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Image File
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Supported formats: JPG, PNG, GIF (Max 10MB)
+                  </p>
+                </div>
+
+                {selectedFile && (
+                  <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                    <Upload className="h-5 w-5 text-purple-600" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedFile.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    onClick={() => {
+                      setShowImageUploadModal(false);
+                      setSelectedFile(null);
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={uploadImageAndUpdateWhatsApp}
+                    disabled={!selectedFile || uploadingImage}
+                    className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  >
+                    {uploadingImage ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Uploading...
+                      </>
+                    ) : (
+                      "Upload Image"
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </AdminLayout>
+        )
+      }
+    </AdminLayout >
   );
 }

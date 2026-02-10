@@ -107,11 +107,13 @@ const getStatusColor = (status) => {
 };
 
 
-const getSubmissionStatus = (actualDate, delayColumn) => {
+const getSubmissionStatus = (actualDate, delayColumn, leaveStatus) => {
   const actualNotNull = !isEmpty(actualDate)
   const delayNotNull = !isEmpty(delayColumn)
 
-  if (actualNotNull && delayNotNull) {
+  if (leaveStatus && leaveStatus.toString().trim() === 'Leave') {
+    return { status: 'Leave', color: 'red' }
+  } else if (actualNotNull && delayNotNull) {
     return { status: 'Late Submitted', color: 'red' }
   } else if (actualNotNull && !delayNotNull) {
     return { status: 'On time', color: 'green' }
@@ -934,6 +936,7 @@ function AccountDataPage() {
         const columnKValue = rowValues[10] // Actual Date
         const columnMValue = rowValues[12] // Status (DONE)
         const columnPValue = rowValues[15] // Admin Processed Date (Column P)
+        const columnQValue = rowValues[16] // Leave Status (Column Q)
 
         const rowDateStr = columnGValue ? String(columnGValue).trim() : ""
         const formattedRowDate = parseGoogleSheetsDateTime(rowDateStr)
@@ -967,6 +970,7 @@ function AccountDataPage() {
           { id: "col13", label: "Remarks", type: "string" },
           { id: "col14", label: "Uploaded Image", type: "string" },
           { id: "col15", label: "Admin Done", type: "string" },
+          { id: "col16", label: "Leave", type: "string" }, // Added Column Q
         ]
 
         columnHeaders.forEach((header, index) => {
@@ -988,8 +992,12 @@ function AccountDataPage() {
         const hasColumnK = !isEmpty(columnKValue)
         const isAdminDone = !isEmpty(columnPValue) && columnPValue.toString().trim() === "Admin Done"
 
-        // HISTORY LOGIC: For history, collect ALL tasks that have Column K filled (completed tasks)
-        if (hasColumnG && hasColumnK) {
+        // Check for Leave Status
+        const isLeave = columnQValue && columnQValue.toString().trim() === 'Leave';
+
+        // HISTORY LOGIC: For history, collect ALL tasks that have Column K filled (completed tasks) OR are marked as Leave using Column Q
+        // Note: Leave tasks usually have Column K filled with the date they were marked as Leave, but checking Q is safer.
+        if ((hasColumnG && hasColumnK) || (hasColumnG && isLeave)) {
           const isUserHistoryMatch = currentUserRole === "admin" || assignedTo.toLowerCase() === currentUsername.toLowerCase()
           if (isUserHistoryMatch) {
             historyRows.push(rowData)
@@ -2009,7 +2017,8 @@ function AccountDataPage() {
                         {displayedHistoryData.map((history) => {
                           const submissionStatus = getSubmissionStatus(
                             history["col10"],
-                            history["col11"]
+                            history["col11"],
+                            history["col16"]
                           );
                           return (
                             <tr key={history._id} className="hover:bg-gray-50">
