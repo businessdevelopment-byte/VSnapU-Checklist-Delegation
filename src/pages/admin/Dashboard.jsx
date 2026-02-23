@@ -536,13 +536,13 @@ export default function AdminDashboard() {
   }
 
   // Modified fetch function to support both checklist and delegation
-  const fetchDepartmentData = async () => {
+  const fetchDepartmentData = async (signal) => {
     const sheetName = dashboardType === "delegation" ? "DELEGATION" : "Checklist";
     const userRole = getUserRole();
     const username = sessionStorage.getItem('username');
 
     try {
-      const response = await fetch(`https://docs.google.com/spreadsheets/d/1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0/gviz/tq?tqx=out:json&sheet=${sheetName}`);
+      const response = await fetch(`https://docs.google.com/spreadsheets/d/1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0/gviz/tq?tqx=out:json&sheet=${sheetName}`, { signal });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch ${sheetName} sheet data: ${response.status}`);
@@ -727,17 +727,26 @@ export default function AdminDashboard() {
           const taskDescription = getCellValue(row, 5) || "Untitled Task"; // Column F - "Task Description"
           const frequency = getCellValue(row, 7) || "one-time"; // Column H - "Freq"
 
-          // UPDATED: Determine task status for display purposes - restored overdue logic for delegation
+          // UPDATED: Determine task status for display purposes
           let status = "pending";
 
-          if (completionDate && completionDate !== "") {
-            status = "completed";
-          } else if (isDateInPast(taskStartDate) && !isDateToday(taskStartDate)) {
-            // For both modes: past dates (excluding today) = overdue
-            status = "overdue";
+          if (dashboardType === "delegation") {
+            if (statusColumnU === "Done") {
+              status = "completed";
+            } else if (isDateInPast(taskStartDate) && !isDateToday(taskStartDate)) {
+              status = "overdue";
+            } else {
+              status = "pending";
+            }
           } else {
-            // For both modes: today or future dates = pending
-            status = "pending";
+            // For checklist mode:
+            if (completionDate && completionDate !== "") {
+              status = "completed";
+            } else if (isDateInPast(taskStartDate) && !isDateToday(taskStartDate)) {
+              status = "overdue";
+            } else {
+              status = "pending";
+            }
           }
 
           // Debug: Log status determination for first few rows
@@ -767,55 +776,40 @@ export default function AdminDashboard() {
 
           // UPDATED: Count for dashboard cards - different logic for delegation vs checklist
           if (dashboardType === "delegation") {
-            // For DELEGATION mode: Count ALL valid tasks, no date restrictions
-            totalTasks++;
+            // Fetch Column A (index-0) for Total number of task
+            const colAValue = getCellValue(row, 0);
+            if (colAValue !== null && colAValue !== undefined && colAValue !== "") {
+              totalTasks++;
+            }
 
-            // NEW LOGIC: Count based on Column U status and Column R rating
+            // Map statuses based on Column U (index-20)
             if (statusColumnU === "Done") {
               completedTasks++;
               staffData.completedTasks++;
               statusData.Completed++;
+              completedRatingOne++; // Will be labeled "Completed Tasks"
+            } else if (statusColumnU === "Planned" || statusColumnU === "Pending") {
+              staffData.pendingTasks++;
+              statusData.Pending++;
+              pendingTasks++;
+              completedRatingTwo++; // Will be labeled "Pending Tasks"
+            } else if (statusColumnU === "Verify Pending") {
+              staffData.pendingTasks++;
+              statusData.Pending++;
+              pendingTasks++;
+              completedRatingThreePlus++; // Will be labeled "Verify Pending"
+            }
 
-              // Count by rating from Column R
-              if (ratingColumnR === 1) {
-                completedRatingOne++;
-              } else if (ratingColumnR === 2) {
-                completedRatingTwo++;
-              } else if (ratingColumnR >= 3) {
-                completedRatingThreePlus++;
-              }
-
-              // Update monthly data for completed tasks
+            // Update monthly data for chart
+            const monthName = new Date().toLocaleString("default", { month: "short" });
+            if (statusColumnU === "Done") {
               const completedMonth = parseDateFromDDMMYYYY(completionDate);
               if (completedMonth) {
-                const monthName = completedMonth.toLocaleString("default", {
-                  month: "short",
-                });
-                if (monthlyData[monthName]) {
-                  monthlyData[monthName].completed++;
-                }
+                const cMonthName = completedMonth.toLocaleString("default", { month: "short" });
+                if (monthlyData[cMonthName]) monthlyData[cMonthName].completed++;
               }
             } else {
-              // Task is not completed - apply counting logic for both modes
-              staffData.pendingTasks++;
-
-              if (isDateInPast(taskStartDate) && !isDateToday(taskStartDate)) {
-                // Past dates (excluding today) = overdue
-                overdueTasks++;
-                statusData.Overdue++;
-              }
-
-              // All incomplete tasks (including overdue + today) = pending
-              pendingTasks++;
-              statusData.Pending++;
-
-              // Update monthly data for pending tasks
-              const monthName = (
-                dashboardType === "delegation" ? new Date() : today
-              ).toLocaleString("default", { month: "short" });
-              if (monthlyData[monthName]) {
-                monthlyData[monthName].pending++;
-              }
+              if (monthlyData[monthName]) monthlyData[monthName].pending++;
             }
           } else {
             // For CHECKLIST mode: Keep existing logic with date restrictions
@@ -941,12 +935,17 @@ export default function AdminDashboard() {
       });
 
     } catch (error) {
+      if (error.name === 'AbortError') {
+        return; // Request was aborted, do nothing
+      }
       console.error(`Error fetching ${sheetName} sheet data:`, error);
     }
   };
 
   useEffect(() => {
-    fetchDepartmentData();
+    const controller = new AbortController();
+    fetchDepartmentData(controller.signal);
+    return () => controller.abort();
   }, [dashboardType]);
 
   // When dashboard loads, set current date
@@ -1238,7 +1237,7 @@ export default function AdminDashboard() {
           <div className="rounded-lg border border-l-4 border-l-blue-500 shadow-md hover:shadow-lg transition-all bg-white">
             <div className="flex flex-row items-center justify-between space-y-0 pb-2 bg-gradient-to-r from-blue-50 to-blue-100 rounded-tr-lg p-4">
               <h3 className="text-sm font-medium text-blue-700">
-                Total Tasks
+                {dashboardType === "checklist" ? "Total Checklists" : "Total Tasks"}
               </h3>
               <ListTodo className="h-4 w-4 text-blue-500" />
             </div>
@@ -1264,8 +1263,8 @@ export default function AdminDashboard() {
             <div className="flex flex-row items-center justify-between space-y-0 pb-2 bg-gradient-to-r from-green-50 to-green-100 rounded-tr-lg p-4">
               <h3 className="text-sm font-medium text-green-700">
                 {dashboardType === "delegation"
-                  ? "Completed Once"
-                  : "Completed Tasks"}
+                  ? "Completed Tasks"
+                  : "Completed Checklists"}
               </h3>
               <CheckCircle2 className="h-4 w-4 text-green-500" />
             </div>
@@ -1277,7 +1276,7 @@ export default function AdminDashboard() {
               </div>
               <p className="text-xs text-green-600">
                 {dashboardType === "delegation"
-                  ? "Tasks completed once"
+                  ? "Tasks completed"
                   : "Total completed till date"}
               </p>
             </div>
@@ -1287,8 +1286,8 @@ export default function AdminDashboard() {
             <div className="flex flex-row items-center justify-between space-y-0 pb-2 bg-gradient-to-r from-amber-50 to-amber-100 rounded-tr-lg p-4">
               <h3 className="text-sm font-medium text-amber-700">
                 {dashboardType === "delegation"
-                  ? "Completed Twice"
-                  : "Pending Tasks"}
+                  ? "Pending Tasks"
+                  : "Pending Checklists"}
               </h3>
               {dashboardType === "delegation" ? (
                 <CheckCircle2 className="h-4 w-4 text-amber-500" />
@@ -1304,7 +1303,7 @@ export default function AdminDashboard() {
               </div>
               <p className="text-xs text-amber-600">
                 {dashboardType === "delegation"
-                  ? "Tasks completed twice"
+                  ? "Tasks in pending/planned"
                   : "Including today + overdue"}
               </p>
             </div>
@@ -1314,8 +1313,8 @@ export default function AdminDashboard() {
             <div className="flex flex-row items-center justify-between space-y-0 pb-2 bg-gradient-to-r from-red-50 to-red-100 rounded-tr-lg p-4">
               <h3 className="text-sm font-medium text-red-700">
                 {dashboardType === "delegation"
-                  ? "Completed 3+ Times"
-                  : "Overdue Tasks"}
+                  ? "Verify Pending"
+                  : "Overdue Checklists"}
               </h3>
               {dashboardType === "delegation" ? (
                 <CheckCircle2 className="h-4 w-4 text-red-500" />
@@ -1331,7 +1330,7 @@ export default function AdminDashboard() {
               </div>
               <p className="text-xs text-red-600">
                 {dashboardType === "delegation"
-                  ? "Tasks completed 3+ times"
+                  ? "Tasks awaiting verification"
                   : "Past due (excluding today)"}
               </p>
             </div>
@@ -1348,7 +1347,7 @@ export default function AdminDashboard() {
                 }`}
               onClick={() => setTaskView("recent")}
             >
-              {dashboardType === "delegation" ? "Today Tasks" : "Recent Tasks"}
+              {dashboardType === "delegation" ? "Today Tasks" : "Recent Checklists"}
             </button>
             <button
               className={`py-3 text-center font-medium transition-colors ${taskView === "upcoming"
@@ -1359,7 +1358,7 @@ export default function AdminDashboard() {
             >
               {dashboardType === "delegation"
                 ? "Future Tasks"
-                : "Upcoming Tasks"}
+                : "Upcoming Checklists"}
             </button>
             <button
               className={`py-3 text-center font-medium transition-colors ${taskView === "overdue"
@@ -1368,7 +1367,7 @@ export default function AdminDashboard() {
                 }`}
               onClick={() => setTaskView("overdue")}
             >
-              Overdue Tasks
+              {dashboardType === "checklist" ? "Overdue Checklists" : "Overdue Tasks"}
             </button>
           </div>
 
@@ -1380,11 +1379,11 @@ export default function AdminDashboard() {
                   className="flex items-center text-purple-700"
                 >
                   <Filter className="h-4 w-4 mr-2" />
-                  Search Tasks
+                  {dashboardType === "checklist" ? "Search Checklists" : "Search Tasks"}
                 </label>
                 <input
                   id="search"
-                  placeholder="Search by task title or ID"
+                  placeholder={dashboardType === "checklist" ? "Search by checklist title or ID" : "Search by task title or ID"}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full rounded-md border border-purple-200 p-2 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
@@ -1438,13 +1437,13 @@ export default function AdminDashboard() {
                         scope="col"
                         className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                       >
-                        Task ID
+                        {dashboardType === "checklist" ? "Checklist ID" : "Task ID"}
                       </th>
                       <th
                         scope="col"
                         className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                       >
-                        Task Description
+                        {dashboardType === "checklist" ? "Checklist Description" : "Task Description"}
                       </th>
                       <th
                         scope="col"
@@ -1456,7 +1455,7 @@ export default function AdminDashboard() {
                         scope="col"
                         className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                       >
-                        Task Start Date
+                        {dashboardType === "checklist" ? "Checklist Start Date" : "Task Start Date"}
                       </th>
                       <th
                         scope="col"
@@ -1504,7 +1503,7 @@ export default function AdminDashboard() {
           <div className="rounded-lg border border-l-4 border-l-indigo-500 shadow-md hover:shadow-lg transition-all bg-white">
             <div className="flex flex-row items-center justify-between space-y-0 pb-2 bg-gradient-to-r from-indigo-50 to-indigo-100 rounded-tr-lg p-4">
               <h3 className="text-sm font-medium text-indigo-700">
-                Task Completion Rate
+                {dashboardType === "checklist" ? "Checklist Completion Rate" : "Task Completion Rate"}
               </h3>
               <BarChart3 className="h-4 w-4 text-indigo-500" />
             </div>
@@ -1516,7 +1515,7 @@ export default function AdminDashboard() {
                 <div className="flex items-center space-x-2">
                   <span className="inline-block w-3 h-3 bg-green-500 rounded-full"></span>
                   <span className="text-xs text-gray-600">
-                    Completed: {departmentData.completedTasks}
+                    Completed: {dashboardType === "checklist" ? departmentData.completedTasks : departmentData.completedTasks}
                   </span>
                   <span className="inline-block w-3 h-3 bg-amber-500 rounded-full"></span>
                   <span className="text-xs text-gray-600">
@@ -1559,10 +1558,10 @@ export default function AdminDashboard() {
                 <div className="lg:col-span-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-lg hover:shadow-purple-500/5 transition-all duration-300">
                   <div className="p-6 border-b border-gray-50">
                     <h3 className="text-gray-900 font-semibold text-lg">
-                      Tasks Overview
+                      {dashboardType === "checklist" ? "Checklist Overview" : "Task Overview"}
                     </h3>
                     <p className="text-gray-500 text-sm mt-1">
-                      Task completion rate over time
+                      {dashboardType === "checklist" ? "Checklist completion rate over time" : "Task completion rate over time"}
                     </p>
                   </div>
                   <div className="p-6">
@@ -1572,10 +1571,10 @@ export default function AdminDashboard() {
                 <div className="lg:col-span-3 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-lg hover:shadow-purple-500/5 transition-all duration-300">
                   <div className="p-6 border-b border-gray-50">
                     <h3 className="text-gray-900 font-semibold text-lg">
-                      Task Status
+                      {dashboardType === "checklist" ? "Checklist Status" : "Task Status"}
                     </h3>
                     <p className="text-gray-500 text-sm mt-1">
-                      Distribution of tasks by status
+                      Distribution of {dashboardType === "checklist" ? "checklists" : "tasks"} by status
                     </p>
                   </div>
                   <div className="p-6">
@@ -1586,10 +1585,10 @@ export default function AdminDashboard() {
               <div className="rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-lg hover:shadow-purple-500/5 transition-all duration-300">
                 <div className="p-6 border-b border-gray-50">
                   <h3 className="text-gray-900 font-semibold text-lg">
-                    Staff Task Summary
+                    {dashboardType === "checklist" ? "Staff Checklist Summary" : "Staff Task Summary"}
                   </h3>
                   <p className="text-gray-500 text-sm mt-1">
-                    Overview of tasks assigned to each staff member
+                    Overview of {dashboardType === "checklist" ? "checklists" : "tasks"} assigned to each staff member
                   </p>
                 </div>
                 <div className="p-6">

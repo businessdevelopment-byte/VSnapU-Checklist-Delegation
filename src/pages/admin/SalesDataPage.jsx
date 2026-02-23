@@ -1,9 +1,9 @@
 "use client"
 import { useState, useEffect, useCallback, useMemo, memo } from "react"
-import { CheckCircle2, Upload, X, Search, History, ArrowLeft, Filter, Edit, Calendar } from "lucide-react"
+import { CheckCircle2, Upload, X, Search, History, ArrowLeft, Filter, Edit } from "lucide-react"
 import AdminLayout from "../../components/layout/AdminLayout"
 
-
+// Configuration object - Move all configurations here
 const CONFIG = {
   // Google Apps Script URL
   APPS_SCRIPT_URL:
@@ -317,9 +317,6 @@ function AccountDataPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [historyDisplayLimit, setHistoryDisplayLimit] = useState(500)
   const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false)
-  const [showLeaveModal, setShowLeaveModal] = useState(false)
-  const [leaveStartDate, setLeaveStartDate] = useState("")
-  const [leaveEndDate, setLeaveEndDate] = useState("")
 
 
   // Admin history selection states
@@ -1322,81 +1319,84 @@ function AccountDataPage() {
     }
   };
 
-  // Refactored function to handle Leave submission
-  const handleLeaveSubmit = async (fromModal = false) => {
-    // If not from modal, just show the modal
-    if (!fromModal) {
-      // Initialize dates if empty
-      if (!leaveStartDate) {
-        const today = new Date();
-        setLeaveStartDate(today.toISOString().split('T')[0]);
-        setLeaveEndDate(today.toISOString().split('T')[0]);
-      }
-      setShowLeaveModal(true);
+  // New function to handle Leave submission
+  const handleLeaveSubmit = async () => {
+    const selectedItemsArray = Array.from(selectedItems);
+    if (selectedItemsArray.length === 0) {
+      alert("Please select at least one item to mark as Leave");
       return;
     }
 
-    // Validation for date range
-    if (!leaveStartDate || !leaveEndDate) {
-      alert("Please select both start and end dates.");
-      return;
-    }
-
-    const start = new Date(leaveStartDate);
-    const end = new Date(leaveEndDate);
-
-    if (start > end) {
-      alert("Start date cannot be after end date.");
+    // Confirm action
+    if (!window.confirm(`Are you sure you want to mark ${selectedItemsArray.length} items as Leave?`)) {
       return;
     }
 
     setIsSubmitting(true);
     try {
-      // Find all tasks for this user within the date range
-      // We search in accountData (which contains filtered tasks for the user usually)
-      // OR we might need to consider that NOT all tasks are in accountData if they are overdue/not today.
-      // But for a user, accountData usually has their assigned tasks.
-
-      const tasksToMarkAsLeave = accountData.filter(task => {
-        const taskDate = parseDateFromDDMMYYYY(task["col6"]);
-        if (!taskDate) return false;
-
-        // Match user (already handled by accountData filtering usually, but let's be safe)
-        const taskUser = task["col4"] ? task["col4"].trim().toUpperCase() : "";
-        const currentUser = username ? username.trim().toUpperCase() : "";
-
-        if (taskUser !== currentUser) return false;
-
-        const d = new Date(taskDate);
-        d.setHours(0, 0, 0, 0);
-        const s = new Date(start);
-        s.setHours(0, 0, 0, 0);
-        const e = new Date(end);
-        e.setHours(0, 0, 0, 0);
-
-        return d >= s && d <= e;
-      });
-
-      if (tasksToMarkAsLeave.length === 0) {
-        alert("No tasks found for the selected date range.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (!window.confirm(`Are you sure you want to mark ${tasksToMarkAsLeave.length} tasks as Leave for the period ${leaveStartDate} to ${leaveEndDate}?`)) {
-        setIsSubmitting(false);
-        return;
-      }
-
       const today = new Date();
+      // Format as DD/MM/YYYY for column B (index 1) - Wait, user said Column B (index 1) match task id.
+      // Re-reading request: "add actual value on dd/mm/yyyy format 26/09/2025 for this fetch Column B (index-1) match the task id and submit Leave on that perticular row" -> This means we match by Task ID (Col B) which we already do by row index/ID.
+      // "add actual value on dd/mm/yyyy format... submit Leave on Column Q (index-16)"
+      // "Actual Value" usually refers to Column K (index 10) in this sheet based on `getTaskStatus` and `handleSubmit` logic.
+      // Let's look at `handleSubmit`:
+      // `actualDate: todayFormatted, // Column K`
+      // So "Actual Value" is Column K.
+      // "Column B (index-1) match the task id" -> This is how we identify the row.
+      // So checks out: Update Column K (index 10) with Date, and Column Q (index 16) with "Leave".
+
       const todayFormatted = formatDateToDDMMYYYY(today);
 
-      const updatePromises = tasksToMarkAsLeave.map(async (item) => {
+      // Prepare submission data
+      const submissionData = selectedItemsArray.map((id) => {
+        const item = accountData.find((account) => account._id === id);
+        return {
+          taskId: item["col1"], // Column B (Task ID)
+          rowIndex: item._rowIndex,
+          actualDate: todayFormatted, // Column K (Actual Date)
+          leaveStatus: "Leave", // Column Q (Leave Status)
+        };
+      });
+
+      // Special handling for "Leave" updates using a custom action or the generic update action if supported
+      // Since we don't have a specific "updateLeave" action in the Apps Script (presumably), we might need to use "update" or "updateTaskData" or similar.
+      // However, `updateTaskData` (used in handleSubmit) updates Status (Col M), Remarks (Col N), Image (Col O). It might NOT update Column Q.
+      // `handleEditRemarks` uses `action: "update"` and `rowData` array.
+      // Let's use `action: "update"` which seems to take a full row array or partial?
+      // In `handleEditRemarks`: `rowData` is `Array(15).fill("")` and index 13 is set.
+      // We need index 10 (Col K) and index 16 (Col Q).
+      // So we need an array of at least 17 elements.
+
+      // Prepare payload for "update" action
+      // We'll do this in a loop or batch if possible. `update` seems designed for single row in the code provided?
+      // `handleEditRemarks` takes `rowIndex` and `rowData`. It seems to handle one at a time.
+      // But `confirmMarkDone` handles multiple.
+      // Let's check `confirmMarkDone` again... it uses `action: "updateAdminDone"` and sends an array of objects.
+      // `handleSubmit` uses `action: "updateTaskData"` and sends an array of objects.
+      // We should probably try to implement a new action if we could edit the script, but we can't.
+      // We should try to use `updateTaskData` if it's flexible, OR loop through `update` action if we must.
+      // A safer bet without backend access is to maybe use `update` action in a loop, OR if `updateTaskData` is generic enough.
+      // The prompt implies I should just "add leave button... and submit Leave on Column Q".
+      // I'll assume `action: "update"` works for generic column updates if we provide the right index.
+      // The `handleEditRemarks` uses `rowData[13]`.
+      // I will trust that sending a larger array with index 16 set will work.
+
+      // We'll iterate and send requests. It might be slow but it's safer than guessing a batch endpoint exists for this specific column.
+      // Wait, `confirmMarkDone` sends `rowData` as stringified JSON of an array of objects.
+      // The backend probably parses that.
+      // Let's try to follow the pattern of `confirmMarkDone` but with `action: "update"`?
+      // No, `handleEditRemarks` sends `rowIndex` (single) and `rowData` (array).
+      // I'll use `Promise.all` with `action: "update"` for each item.
+
+      const updatePromises = selectedItemsArray.map(async (id) => {
+        const item = accountData.find((account) => account._id === id);
         const formData = new FormData();
         formData.append("sheetName", CONFIG.SHEET_NAME);
-        formData.append("action", "update");
+        formData.append("action", "update"); // Default update action
         formData.append("rowIndex", item._rowIndex);
 
+        // Create row data array
+        // We need up to index 16 (Column Q). Array length 17.
         const rowData = Array(17).fill("");
         rowData[10] = todayFormatted; // Column K (Actual)
         rowData[16] = "Leave";        // Column Q (Leave)
@@ -1411,18 +1411,40 @@ function AccountDataPage() {
       });
 
       const results = await Promise.all(updatePromises);
-      const allSuccessful = results.every(r => r && r.success);
+      const failures = results.filter(r => !r.success);
 
-      if (allSuccessful) {
-        setSuccessMessage(`Successfully marked ${tasksToMarkAsLeave.length} tasks as Leave!`);
-        setShowLeaveModal(false);
-        // Refresh data
-        setTimeout(() => {
-          fetchSheetData();
-        }, 2000);
+      if (failures.length > 0) {
+        console.error("Some updates failed", failures);
+        alert(`Some items failed to update. ${failures.length} failures.`);
       } else {
-        alert("Some tasks failed to update. Please check history.");
+        setSuccessMessage(`Successfully marked ${selectedItemsArray.length} items as Leave!`);
       }
+
+      // Optimistic UI update
+      // We might want to remove them from the list if they are considered "Done"?
+      // The logic for "Done" is `getTaskStatus`.
+      // If Column K (Actual) is filled, `getTaskStatus` returns "Done".
+      // So setting Col 10 (K) to a date makes it "Done".
+      // So they should disappear from the "Pending" list.
+
+      setAccountData((prev) => prev.filter((item) => !selectedItems.has(item._id)));
+
+      // Add to history? History logic:
+      // if (hasColumnG && hasColumnK) -> checked in `fetchSheetData`.
+      // So yes, we should add them to history.
+      const submittedItemsForHistory = selectedItemsArray.map((id) => {
+        const item = accountData.find((account) => account._id === id);
+        return {
+          ...item,
+          col10: todayFormatted, // Column K
+          col16: "Leave",        // Column Q (though not displayed in history columns explicitly? It might be useful)
+        };
+      });
+      setHistoryData((prev) => [...submittedItemsForHistory, ...prev]);
+
+      setSelectedItems(new Set());
+      setAdditionalData({});
+      setRemarksData({});
 
     } catch (error) {
       console.error("Error submitting Leave:", error);
@@ -1684,16 +1706,14 @@ function AccountDataPage() {
                     ? "Processing..."
                     : `Submit Selected (${selectedItemsCount})`}
                 </button>
-                {/* Leave Button Mobile - Hidden for Admins */}
-                {userRole !== "admin" && (
-                  <button
-                    onClick={() => handleLeaveSubmit(false)}
-                    disabled={isSubmitting}
-                    className="w-full bg-orange-500 hover:bg-orange-600 py-3 px-4 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-                  >
-                    {isSubmitting ? "Processing..." : "Leave"}
-                  </button>
-                )}
+                {/* Leave Button Mobile */}
+                <button
+                  onClick={handleLeaveSubmit}
+                  disabled={selectedItemsCount === 0 || isSubmitting}
+                  className="w-full bg-orange-500 hover:bg-orange-600 py-3 px-4 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                >
+                  {isSubmitting ? "Processing..." : "Leave"}
+                </button>
               </>
             )}
           </div>
@@ -1743,16 +1763,13 @@ function AccountDataPage() {
             {/* Submit & Leave Buttons */}
             {!showHistory && (
               <>
-                {/* Leave Button Desktop - Hidden for Admins */}
-                {userRole !== "admin" && (
-                  <button
-                    onClick={() => handleLeaveSubmit(false)}
-                    disabled={isSubmitting}
-                    className="bg-red-100 hover:bg-red-200 text-red-600 px-6 py-2 rounded-md focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-                  >
-                    {isSubmitting ? "..." : "Leave"}
-                  </button>
-                )}
+                <button
+                  onClick={handleLeaveSubmit}
+                  disabled={selectedItemsCount === 0 || isSubmitting}
+                  className="bg-red-100 hover:bg-red-200 text-red-600 px-6 py-2 rounded-md focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                >
+                  {isSubmitting ? "..." : "Leave"}
+                </button>
 
                 <button
                   onClick={handleSubmit}
@@ -2800,80 +2817,6 @@ function AccountDataPage() {
           )}
         </div>
       </div>
-      {/* Leave Submission Modal */}
-      {showLeaveModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-purple-100">
-            <div className="bg-gradient-to-r from-orange-500 to-red-600 p-4 text-white flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                <h3 className="font-bold text-lg">Leave Request</h3>
-              </div>
-              <button
-                onClick={() => setShowLeaveModal(false)}
-                className="text-white hover:bg-white/20 rounded-full p-1 transition-colors"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6">
-              <p className="text-gray-600 text-sm">
-                Select the date range for your leave. All tasks assigned to you within these inclusive dates will be marked as "Leave".
-              </p>
-
-              <div className="grid grid-cols-1 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold text-gray-700 block">Start Date</label>
-                  <input
-                    type="date"
-                    value={leaveStartDate}
-                    onChange={(e) => setLeaveStartDate(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold text-gray-700 block">End Date</label>
-                  <input
-                    type="date"
-                    value={leaveEndDate}
-                    onChange={(e) => setLeaveEndDate(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              <div className="bg-orange-50 border border-orange-100 rounded-lg p-3 text-sm text-orange-800 flex gap-2">
-                <div className="mt-0.5">ℹ️</div>
-                <p>Tasks marked as "Leave" will be recorded in history and removed from your pending list.</p>
-              </div>
-            </div>
-
-            <div className="p-4 bg-gray-50 flex gap-3 border-t">
-              <button
-                onClick={() => setShowLeaveModal(false)}
-                className="flex-1 py-3 px-4 bg-white border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
-                disabled={isSubmitting}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleLeaveSubmit(true)}
-                className="flex-[2] py-3 px-4 gradient-bg text-white rounded-lg font-bold shadow-lg shadow-orange-200 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isSubmitting || !leaveStartDate || !leaveEndDate}
-              >
-                {isSubmitting ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-                    <span>Submitting...</span>
-                  </div>
-                ) : "Submit Leave"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </AdminLayout>
   );
 }

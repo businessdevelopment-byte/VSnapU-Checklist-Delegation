@@ -576,7 +576,7 @@ function DelegationDataPage() {
   ]); // Added nameFilter dependency
   // Optimized data fetching with parallel requests
   // Optimized data fetching with parallel requests
-  const fetchSheetData = useCallback(async () => {
+  const fetchSheetData = useCallback(async (signal) => {
     try {
       setLoading(true);
       setError(null);
@@ -584,10 +584,12 @@ function DelegationDataPage() {
       // Parallel fetch both sheets for better performance
       const [mainResponse, historyResponse] = await Promise.all([
         fetch(
-          `${CONFIG.APPS_SCRIPT_URL}?sheet=${CONFIG.SOURCE_SHEET_NAME}&action=fetch`
+          `${CONFIG.APPS_SCRIPT_URL}?sheet=${CONFIG.SOURCE_SHEET_NAME}&action=fetch`,
+          { signal }
         ),
         fetch(
-          `${CONFIG.APPS_SCRIPT_URL}?sheet=${CONFIG.TARGET_SHEET_NAME}&action=fetch`
+          `${CONFIG.APPS_SCRIPT_URL}?sheet=${CONFIG.TARGET_SHEET_NAME}&action=fetch`,
+          { signal }
         ).catch(() => null),
       ]);
 
@@ -748,6 +750,9 @@ function DelegationDataPage() {
       setDelegationData(allDelegationData);
       setLoading(false);
     } catch (error) {
+      if (error.name === 'AbortError') {
+        return;
+      }
       console.error("Error fetching sheet data:", error);
       setError("Failed to load account data: " + error.message);
       setLoading(false);
@@ -762,7 +767,9 @@ function DelegationDataPage() {
   ]);
 
   useEffect(() => {
-    fetchSheetData();
+    const controller = new AbortController();
+    fetchSheetData(controller.signal);
+    return () => controller.abort();
   }, [fetchSheetData]);
 
   const handleSelectItem = useCallback((id, isChecked) => {
