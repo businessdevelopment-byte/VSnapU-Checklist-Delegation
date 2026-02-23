@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo, memo } from "react"
 import { CheckCircle2, Upload, X, Search, History, ArrowLeft, Filter, Edit, Calendar } from "lucide-react"
 import AdminLayout from "../../components/layout/AdminLayout"
 
-// Configuration object - Move all configurations here
+
 const CONFIG = {
   // Google Apps Script URL
   APPS_SCRIPT_URL:
