@@ -317,7 +317,9 @@ function AccountDataPage() {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [historyDisplayLimit, setHistoryDisplayLimit] = useState(500)
   const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false)
-
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false)
+  const [leaveStartDate, setLeaveStartDate] = useState("")
+  const [leaveEndDate, setLeaveEndDate] = useState("")
 
   // Admin history selection states
   const [selectedHistoryItems, setSelectedHistoryItems] = useState([])
@@ -1320,94 +1322,128 @@ function AccountDataPage() {
   };
 
   // New function to handle Leave submission
-  const handleLeaveSubmit = async () => {
-    const selectedItemsArray = Array.from(selectedItems);
-    if (selectedItemsArray.length === 0) {
-      alert("Please select at least one item to mark as Leave");
+  const handleLeaveSubmit = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+    setLeaveStartDate(dateStr);
+    setLeaveEndDate(dateStr);
+    setIsLeaveModalOpen(true);
+  };
+
+  const confirmLeaveSubmit = async () => {
+    if (!leaveStartDate || !leaveEndDate) {
+      alert("Please select both start and end dates for the leave.");
       return;
     }
 
-    // Confirm action
-    if (!window.confirm(`Are you sure you want to mark ${selectedItemsArray.length} items as Leave?`)) {
+    const startObj = new Date(leaveStartDate);
+    startObj.setHours(0, 0, 0, 0);
+    const endObj = new Date(leaveEndDate);
+    endObj.setHours(23, 59, 59, 999);
+
+    if (startObj > endObj) {
+      alert("Start date cannot be after end date.");
       return;
     }
 
+    setIsLeaveModalOpen(false);
     setIsSubmitting(true);
     try {
-      const today = new Date();
-      // Format as DD/MM/YYYY for column B (index 1) - Wait, user said Column B (index 1) match task id.
-      // Re-reading request: "add actual value on dd/mm/yyyy format 26/09/2025 for this fetch Column B (index-1) match the task id and submit Leave on that perticular row" -> This means we match by Task ID (Col B) which we already do by row index/ID.
-      // "add actual value on dd/mm/yyyy format... submit Leave on Column Q (index-16)"
-      // "Actual Value" usually refers to Column K (index 10) in this sheet based on `getTaskStatus` and `handleSubmit` logic.
-      // Let's look at `handleSubmit`:
-      // `actualDate: todayFormatted, // Column K`
-      // So "Actual Value" is Column K.
-      // "Column B (index-1) match the task id" -> This is how we identify the row.
-      // So checks out: Update Column K (index 10) with Date, and Column Q (index 16) with "Leave".
+      const partsStart = leaveStartDate.split("-");
+      const leaveFormatted = `${partsStart[2]}/${partsStart[1]}/${partsStart[0]}`;
 
-      const todayFormatted = formatDateToDDMMYYYY(today);
+      const response = await fetch(`${CONFIG.APPS_SCRIPT_URL}?sheet=${CONFIG.SHEET_NAME}&action=fetch`);
+      if (!response.ok) throw new Error("Failed to fetch data to calculate leave");
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        const jsonStart = text.indexOf("{");
+        const jsonEnd = text.lastIndexOf("}");
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          data = JSON.parse(text.substring(jsonStart, jsonEnd + 1));
+        } else {
+          throw new Error("Invalid format from server");
+        }
+      }
 
-      // Prepare submission data
-      const submissionData = selectedItemsArray.map((id) => {
-        const item = accountData.find((account) => account._id === id);
-        return {
-          taskId: item["col1"], // Column B (Task ID)
-          rowIndex: item._rowIndex,
-          actualDate: todayFormatted, // Column K (Actual Date)
-          leaveStatus: "Leave", // Column Q (Leave Status)
-        };
+      let rows = [];
+      if (data.table && data.table.rows) {
+        rows = data.table.rows;
+      } else if (Array.isArray(data)) {
+        rows = data;
+      } else if (data.values) {
+        rows = data.values.map((row) => ({ c: row.map((val) => ({ v: val })) }));
+      }
+
+      const tasksToUpdate = [];
+
+      rows.forEach((row, rowIndex) => {
+        if (rowIndex === 0) return;
+        let rowValues = [];
+        if (row.c) {
+          rowValues = row.c.map(cell => (cell && cell.v !== undefined ? cell.v : ""));
+        } else if (Array.isArray(row)) {
+          rowValues = row;
+        } else return;
+
+        const assignedTo = rowValues[4] || "Unassigned";
+
+        let isUserMatch = false;
+        if (userRole === "admin") {
+          if (selectedMembers.length > 0) {
+            isUserMatch = selectedMembers.includes(assignedTo);
+          } else {
+            isUserMatch = assignedTo.toLowerCase() === username.toLowerCase();
+          }
+        } else {
+          isUserMatch = assignedTo.toLowerCase() === username.toLowerCase();
+        }
+
+        if (isUserMatch) {
+          const colG = rowValues[6];
+          const formattedDate = parseGoogleSheetsDateTime(colG ? String(colG).trim() : "");
+          const taskDate = parseDateFromDDMMYYYY(formattedDate);
+
+          if (taskDate && taskDate >= startObj && taskDate <= endObj) {
+            const taskId = rowValues[1];
+            if (taskId) {
+              const rowDataPayload = Array(17).fill("");
+              rowDataPayload[10] = leaveFormatted;
+              rowDataPayload[16] = "Leave";
+
+              tasksToUpdate.push({
+                rowIndex: rowIndex + 1,
+                taskId: taskId,
+                rowData: rowDataPayload
+              });
+            }
+          }
+        }
       });
 
-      // Special handling for "Leave" updates using a custom action or the generic update action if supported
-      // Since we don't have a specific "updateLeave" action in the Apps Script (presumably), we might need to use "update" or "updateTaskData" or similar.
-      // However, `updateTaskData` (used in handleSubmit) updates Status (Col M), Remarks (Col N), Image (Col O). It might NOT update Column Q.
-      // `handleEditRemarks` uses `action: "update"` and `rowData` array.
-      // Let's use `action: "update"` which seems to take a full row array or partial?
-      // In `handleEditRemarks`: `rowData` is `Array(15).fill("")` and index 13 is set.
-      // We need index 10 (Col K) and index 16 (Col Q).
-      // So we need an array of at least 17 elements.
+      if (tasksToUpdate.length === 0) {
+        alert("No tasks found for the selected date range and user.");
+        setIsSubmitting(false);
+        return;
+      }
 
-      // Prepare payload for "update" action
-      // We'll do this in a loop or batch if possible. `update` seems designed for single row in the code provided?
-      // `handleEditRemarks` takes `rowIndex` and `rowData`. It seems to handle one at a time.
-      // But `confirmMarkDone` handles multiple.
-      // Let's check `confirmMarkDone` again... it uses `action: "updateAdminDone"` and sends an array of objects.
-      // `handleSubmit` uses `action: "updateTaskData"` and sends an array of objects.
-      // We should probably try to implement a new action if we could edit the script, but we can't.
-      // We should try to use `updateTaskData` if it's flexible, OR loop through `update` action if we must.
-      // A safer bet without backend access is to maybe use `update` action in a loop, OR if `updateTaskData` is generic enough.
-      // The prompt implies I should just "add leave button... and submit Leave on Column Q".
-      // I'll assume `action: "update"` works for generic column updates if we provide the right index.
-      // The `handleEditRemarks` uses `rowData[13]`.
-      // I will trust that sending a larger array with index 16 set will work.
-
-      // We'll iterate and send requests. It might be slow but it's safer than guessing a batch endpoint exists for this specific column.
-      // Wait, `confirmMarkDone` sends `rowData` as stringified JSON of an array of objects.
-      // The backend probably parses that.
-      // Let's try to follow the pattern of `confirmMarkDone` but with `action: "update"`?
-      // No, `handleEditRemarks` sends `rowIndex` (single) and `rowData` (array).
-      // I'll use `Promise.all` with `action: "update"` for each item.
-
-      const updatePromises = selectedItemsArray.map(async (id) => {
-        const item = accountData.find((account) => account._id === id);
+      const updatePromises = tasksToUpdate.map(async (task) => {
         const formData = new FormData();
         formData.append("sheetName", CONFIG.SHEET_NAME);
-        formData.append("action", "update"); // Default update action
-        formData.append("rowIndex", item._rowIndex);
+        formData.append("action", "update");
+        formData.append("rowIndex", task.rowIndex);
+        formData.append("rowData", JSON.stringify(task.rowData));
 
-        // Create row data array
-        // We need up to index 16 (Column Q). Array length 17.
-        const rowData = Array(17).fill("");
-        rowData[10] = todayFormatted; // Column K (Actual)
-        rowData[16] = "Leave";        // Column Q (Leave)
-
-        formData.append("rowData", JSON.stringify(rowData));
-
-        const response = await fetch(CONFIG.APPS_SCRIPT_URL, {
+        const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
           method: "POST",
           body: formData,
         });
-        return response.json();
+        return res.json();
       });
 
       const results = await Promise.all(updatePromises);
@@ -1415,36 +1451,12 @@ function AccountDataPage() {
 
       if (failures.length > 0) {
         console.error("Some updates failed", failures);
-        alert(`Some items failed to update. ${failures.length} failures.`);
+        alert(`Failed to update ${failures.length} tasks.`);
       } else {
-        setSuccessMessage(`Successfully marked ${selectedItemsArray.length} items as Leave!`);
+        setSuccessMessage(`Successfully marked ${tasksToUpdate.length} tasks as Leave!`);
       }
 
-      // Optimistic UI update
-      // We might want to remove them from the list if they are considered "Done"?
-      // The logic for "Done" is `getTaskStatus`.
-      // If Column K (Actual) is filled, `getTaskStatus` returns "Done".
-      // So setting Col 10 (K) to a date makes it "Done".
-      // So they should disappear from the "Pending" list.
-
-      setAccountData((prev) => prev.filter((item) => !selectedItems.has(item._id)));
-
-      // Add to history? History logic:
-      // if (hasColumnG && hasColumnK) -> checked in `fetchSheetData`.
-      // So yes, we should add them to history.
-      const submittedItemsForHistory = selectedItemsArray.map((id) => {
-        const item = accountData.find((account) => account._id === id);
-        return {
-          ...item,
-          col10: todayFormatted, // Column K
-          col16: "Leave",        // Column Q (though not displayed in history columns explicitly? It might be useful)
-        };
-      });
-      setHistoryData((prev) => [...submittedItemsForHistory, ...prev]);
-
-      setSelectedItems(new Set());
-      setAdditionalData({});
-      setRemarksData({});
+      fetchSheetData();
 
     } catch (error) {
       console.error("Error submitting Leave:", error);
@@ -1709,7 +1721,7 @@ function AccountDataPage() {
                 {/* Leave Button Mobile */}
                 <button
                   onClick={handleLeaveSubmit}
-                  disabled={selectedItemsCount === 0 || isSubmitting}
+                  disabled={isSubmitting}
                   className="w-full bg-orange-500 hover:bg-orange-600 py-3 px-4 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                 >
                   {isSubmitting ? "Processing..." : "Leave"}
@@ -1765,7 +1777,7 @@ function AccountDataPage() {
               <>
                 <button
                   onClick={handleLeaveSubmit}
-                  disabled={selectedItemsCount === 0 || isSubmitting}
+                  disabled={isSubmitting}
                   className="bg-red-100 hover:bg-red-200 text-red-600 px-6 py-2 rounded-md focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
                 >
                   {isSubmitting ? "..." : "Leave"}
@@ -2817,6 +2829,49 @@ function AccountDataPage() {
           )}
         </div>
       </div>
+
+      {isLeaveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Select Leave Dates</h2>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+              <input
+                type="date"
+                value={leaveStartDate}
+                onChange={(e) => setLeaveStartDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+              <input
+                type="date"
+                value={leaveEndDate}
+                onChange={(e) => setLeaveEndDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={() => setIsLeaveModalOpen(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                disabled={isSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmLeaveSubmit}
+                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Submitting..." : "Confirm Leave"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </AdminLayout>
   );
 }
