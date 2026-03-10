@@ -223,6 +223,7 @@ export default function AssignTask() {
     } else {
       return [
         { value: "daily", label: "Daily" },
+        { value: "alternate-day", label: "Alternate Days" },
         { value: "weekly", label: "Weekly" },
         { value: "fortnightly", label: "Fortnightly" },
         { value: "monthly", label: "Monthly" },
@@ -292,7 +293,7 @@ export default function AssignTask() {
   // Function to fetch options from master sheet
   const fetchMasterSheetOptions = async () => {
     try {
-      const masterSheetId = "1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0";
+      const masterSheetId = "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA";
       const masterSheetName = "master";
 
       const url = `https://docs.google.com/spreadsheets/d/${masterSheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
@@ -350,11 +351,6 @@ export default function AssignTask() {
       setGivenByOptions([...new Set(givenBy)].sort());
       setDoerOptions([...new Set(doers)].sort());
 
-      console.log("Master sheet options loaded successfully", {
-        departments: [...new Set(departments)],
-        givenBy: [...new Set(givenBy)],
-        doers: [...new Set(doers)],
-      });
     } catch (error) {
       console.error("Error fetching master sheet options:", error);
       // Set default options if fetch fails
@@ -465,10 +461,9 @@ export default function AssignTask() {
         const userRole = sessionStorage.getItem("role");
         const username = sessionStorage.getItem("username");
 
-        console.log("Current user details:", { userRole, username });
 
         // Fetch all doers first
-        const masterSheetId = "1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0";
+        const masterSheetId = "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA";
         const masterSheetName = "master";
         const url = `https://docs.google.com/spreadsheets/d/${masterSheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
           masterSheetName
@@ -497,8 +492,6 @@ export default function AssignTask() {
             if (value !== "") allDoers.push(value);
           }
         });
-
-        console.log("All doers from sheet:", allDoers);
 
         // Filter based on user role
         let filteredDoers;
@@ -541,9 +534,6 @@ export default function AssignTask() {
           selectedDoer = username || "Default User";
         }
 
-        console.log("Filtered doers:", filteredDoers);
-        console.log("Selected doer for prefetch:", selectedDoer);
-
         setDoerOptions(filteredDoers);
 
         // Always prefetch for non-admin users
@@ -552,7 +542,6 @@ export default function AssignTask() {
             ...prev,
             doer: selectedDoer,
           }));
-          console.log("Prefetched doer field with:", selectedDoer);
         }
       } catch (error) {
         console.error("Error fetching doer options:", error);
@@ -569,7 +558,6 @@ export default function AssignTask() {
             ...prev,
             doer: fallbackName,
           }));
-          console.log("Fallback: Prefetched doer field with:", fallbackName);
         }
       }
     };
@@ -587,7 +575,7 @@ export default function AssignTask() {
   // Add a function to get the last task ID from the specified sheet
   const getLastTaskId = async (sheetName) => {
     try {
-      const url = `https://docs.google.com/spreadsheets/d/1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
+      const url = `https://docs.google.com/spreadsheets/d/1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
         sheetName
       )}`;
 
@@ -636,7 +624,7 @@ export default function AssignTask() {
   // Function to fetch working days from the Working Day Calendar sheet
   const fetchWorkingDays = async () => {
     try {
-      const sheetId = "1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0";
+      const sheetId = "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA";
       const sheetName = "Working Day Calendar";
 
       const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
@@ -655,7 +643,6 @@ export default function AssignTask() {
       const data = JSON.parse(jsonString);
 
       if (!data.table || !data.table.rows) {
-        console.log("No working day data found");
         return [];
       }
 
@@ -691,7 +678,6 @@ export default function AssignTask() {
         }
       });
 
-      console.log(`Fetched ${workingDays.length} working days`);
       return workingDays;
     } catch (error) {
       console.error("Error fetching working days:", error);
@@ -1060,7 +1046,7 @@ export default function AssignTask() {
       );
 
       await fetch(
-        "https://script.google.com/macros/s/AKfycbwlEKO_SGplEReKLOdaCdpmztSXHDB_0oapI1dwiEY7qmuzvhScIvmXjB6_HLP8jFQL/exec",
+        "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec",
         {
           method: "POST",
           body: formPayload,
@@ -1068,7 +1054,6 @@ export default function AssignTask() {
         }
       );
 
-      console.log(`First task submitted to ${uniqueSheetName} sheet`);
     } catch (error) {
       console.error("Error submitting to unique sheet:", error);
     }
@@ -1154,7 +1139,7 @@ export default function AssignTask() {
       formPayloadMain.append("rowData", JSON.stringify(tasksDataMain));
 
       await fetch(
-        "https://script.google.com/macros/s/AKfycbwlEKO_SGplEReKLOdaCdpmztSXHDB_0oapI1dwiEY7qmuzvhScIvmXjB6_HLP8jFQL/exec",
+        "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec",
         {
           method: "POST",
           body: formPayloadMain,
@@ -1191,7 +1176,7 @@ export default function AssignTask() {
       //   formPayloadUnique.append("rowData", JSON.stringify(tasksDataUnique));
 
       //   await fetch(
-      //     "https://script.google.com/macros/s/AKfycbwlEKO_SGplEReKLOdaCdpmztSXHDB_0oapI1dwiEY7qmuzvhScIvmXjB6_HLP8jFQL/exec",
+      //     "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec",
       //     {
       //       method: "POST",
       //       body: formPayloadUnique,

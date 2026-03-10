@@ -96,7 +96,7 @@ export default function AdminLayout({ children, darkMode, toggleDarkMode }) {
     },
     {
       href: "/dashboard/quick-task",
-      label: "Quick Task",
+      label: "Quick Task Checklist",
       icon: Zap,
       active: location.pathname === "/dashboard/quick-task",
       showFor: ["admin", "user"] // Only show for admin

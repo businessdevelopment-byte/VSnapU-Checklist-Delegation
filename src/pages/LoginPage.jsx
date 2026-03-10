@@ -42,16 +42,16 @@ const LoginPage = () => {
   useEffect(() => {
     const fetchMasterData = async () => {
       const SCRIPT_URL =
-        "https://script.google.com/macros/s/AKfycbwlEKO_SGplEReKLOdaCdpmztSXHDB_0oapI1dwiEY7qmuzvhScIvmXjB6_HLP8jFQL/exec";
+        "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec";
 
       try {
         setIsDataLoading(true);
 
         // Get the spreadsheet ID from your Apps Script
-        const SPREADSHEET_ID = "1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0";
+        const SPREADSHEET_ID = "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA";
 
         // Construct the URL to read the sheet data directly
-        const sheetUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=master`;
+        const sheetUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=master&headers=1`;
 
         const response = await fetch(sheetUrl);
         const text = await response.text();
@@ -69,8 +69,8 @@ const LoginPage = () => {
         if (data.table && data.table.rows) {
           //console.log("Raw sheet data:", data.table.rows);
 
-          // Start from index 1 to skip header row (adjust if needed)
-          for (let i = 1; i < data.table.rows.length; i++) {
+          // Start from index 0 since headers=1 extracts the single header row
+          for (let i = 0; i < data.table.rows.length; i++) {
             const row = data.table.rows[i];
 
             // Extract data from columns C, D, E (indices 2, 3, 4)
@@ -154,8 +154,8 @@ const LoginPage = () => {
 
   const logAttendance = async (username, role) => {
     const SCRIPT_URL =
-      "https://script.google.com/macros/s/AKfycbwlEKO_SGplEReKLOdaCdpmztSXHDB_0oapI1dwiEY7qmuzvhScIvmXjB6_HLP8jFQL/exec";
-    const SPREADSHEET_ID = "1MvNdsblxNzREdV5kSgBo_78IusmQzilbar9pteufEz0";
+      "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec";
+    const SPREADSHEET_ID = "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA";
 
     try {
       // Step 1: Fetch sheet data using GVIZ to find the user's row

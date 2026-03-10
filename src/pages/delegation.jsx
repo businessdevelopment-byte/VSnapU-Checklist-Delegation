@@ -14,9 +14,9 @@ import AdminLayout from "../components/layout/AdminLayout";
 
 const CONFIG = {
   APPS_SCRIPT_URL:
-    "https://script.google.com/macros/s/AKfycbwlEKO_SGplEReKLOdaCdpmztSXHDB_0oapI1dwiEY7qmuzvhScIvmXjB6_HLP8jFQL/exec",
+    "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec",
 
-  DRIVE_FOLDER_ID: "1aNvrucZButW0c4RwMBGDJiJ-wbOlpQIb",
+  DRIVE_FOLDER_ID: "1vyjH9ZFEzplMJVnjgGbbDpSfZ_Toj6-Z",
 
   SOURCE_SHEET_NAME: "DELEGATION",
   TARGET_SHEET_NAME: "DELEGATION DONE",
