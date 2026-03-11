@@ -61,6 +61,9 @@ export default function AdminDashboard() {
     filtered: false
   });
 
+  // State for MIS Report staff filter
+  const [misFilterStaff, setMisFilterStaff] = useState("all");
+
   // State to store filtered statistics
   const [filteredDateStats, setFilteredDateStats] = useState({
     totalTasks: 0,
@@ -354,32 +357,42 @@ export default function AdminDashboard() {
     return formatDateToDDMMYYYY(date);
   };
 
-  const filterTasksByDateRange = () => {
-    if (!dateRange.startDate || !dateRange.endDate) {
-      alert("Please select both start and end dates");
+  const applyMisFilters = () => {
+    let filteredTasks = departmentData.allTasks;
+    let isFiltered = false;
+
+    // Filter by staff if selected
+    if (misFilterStaff !== "all") {
+      filteredTasks = filteredTasks.filter(task => task.assignedTo === misFilterStaff);
+      isFiltered = true;
+    }
+
+    // Filter by date range if both are selected
+    if (dateRange.startDate && dateRange.endDate) {
+      const startDate = new Date(dateRange.startDate);
+      startDate.setHours(0, 0, 0, 0);
+
+      const endDate = new Date(dateRange.endDate);
+      endDate.setHours(23, 59, 59, 999);
+
+      if (startDate > endDate) {
+        alert("Start date must be before end date");
+        return;
+      }
+
+      filteredTasks = filteredTasks.filter(task => {
+        const taskStartDate = parseDateFromDDMMYYYY(task.taskStartDate);
+        if (!taskStartDate) return false;
+        return taskStartDate >= startDate && taskStartDate <= endDate;
+      });
+      isFiltered = true;
+    } else if (dateRange.startDate || dateRange.endDate) {
+      // Alert only if one is selected but not the other
+      alert("Please select both start and end dates to filter by date.");
       return;
     }
 
-    const startDate = new Date(dateRange.startDate);
-    startDate.setHours(0, 0, 0, 0);
-
-    const endDate = new Date(dateRange.endDate);
-    endDate.setHours(23, 59, 59, 999);
-
-    if (startDate > endDate) {
-      alert("Start date must be before end date");
-      return;
-    }
-
-    // Filter tasks within the date range
-    const filteredTasks = departmentData.allTasks.filter(task => {
-      const taskStartDate = parseDateFromDDMMYYYY(task.taskStartDate);
-      if (!taskStartDate) return false;
-
-      return taskStartDate >= startDate && taskStartDate <= endDate;
-    });
-
-    // Count statistics
+    // Count statistics based on filteredTasks
     let totalTasks = filteredTasks.length;
     let completedTasks = 0;
     let pendingTasks = 0;
@@ -413,8 +426,8 @@ export default function AdminDashboard() {
       completionRate
     });
 
-    // Set filtered flag to true
-    setDateRange(prev => ({ ...prev, filtered: true }));
+    // Set filtered flag to true if any filter was applied
+    setDateRange(prev => ({ ...prev, filtered: isFiltered }));
   };
 
   // Format date as DD/MM/YYYY
@@ -1618,9 +1631,9 @@ export default function AdminDashboard() {
               </div>
               <div className="p-6">
                 <div className="space-y-8">
-                  {/* UPDATED: Only show date range selection for checklist mode */}
+                  {/* UPDATED: Only show filters for checklist mode */}
                   {dashboardType !== "delegation" && (
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 bg-gray-50 p-4 rounded-lg border border-gray-100">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 bg-gray-50 p-4 rounded-lg border border-gray-100">
                       <div className="space-y-2 lg:col-span-1">
                         <label
                           htmlFor="start-date"
@@ -1661,9 +1674,37 @@ export default function AdminDashboard() {
                           className="w-full rounded-md border border-purple-200 p-2 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
                         />
                       </div>
-                      <div className="space-y-2 lg:col-span-2 flex items-end">
+                      <div className="space-y-2 lg:col-span-2">
+                        <label
+                          htmlFor="mis-staff-filter"
+                          className="flex items-center text-purple-700 text-sm font-medium"
+                        >
+                          Filter by Name
+                        </label>
+                        <select
+                          id="mis-staff-filter"
+                          value={misFilterStaff}
+                          onChange={(e) => setMisFilterStaff(e.target.value)}
+                          className="w-full rounded-md border border-purple-200 p-2 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                        >
+                          <option value="all">All Staff</option>
+                          {departmentData.staffMembers
+                            .filter(
+                              (staff) =>
+                                isAdminUser() ||
+                                staff.name.toLowerCase() ===
+                                sessionStorage.getItem("username")?.toLowerCase()
+                            )
+                            .map((staff) => (
+                              <option key={staff.id} value={staff.name}>
+                                {staff.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2 lg:col-span-1 flex items-end">
                         <button
-                          onClick={filterTasksByDateRange}
+                          onClick={applyMisFilters}
                           className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded transition-colors"
                         >
                           Apply Filter
