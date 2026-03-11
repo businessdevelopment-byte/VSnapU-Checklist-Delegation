@@ -202,7 +202,7 @@ export default function AdminLayout({ children, darkMode, toggleDarkMode }) {
             to="/dashboard/admin"
             className="flex items-center justify-center w-full"
           >
-            <img src={sbhLogo} alt="Checklist & Delegation" className="h-10 w-auto object-contain" />
+            <img src={sbhLogo} alt="Checklist & Delegation" className="h-12 w-auto object-contain" />
           </Link>
         </div>
         <nav className="flex-1 overflow-y-auto p-2">

@@ -24,6 +24,13 @@ export default function QuickTask() {
     frequency: false
   });
 
+  // New states for editing functionality
+  const [isEditing, setIsEditing] = useState({});
+  const [editingData, setEditingData] = useState({});
+  const [savingTasks, setSavingTasks] = useState({});
+  const [masterDepartments, setMasterDepartments] = useState([]);
+  const [masterNames, setMasterNames] = useState([]);
+
   const CONFIG = {
     SHEET_ID: "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA",
     WHATSAPP_SHEET: "Whatsapp", // For login credentials and user roles
@@ -185,6 +192,38 @@ export default function QuickTask() {
       setLoading(false);
     }
   }, [currentUser, userRole, userLoading]);
+
+  const fetchMasterData = useCallback(async () => {
+    try {
+      const sheetUrl = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:json&sheet=Master&headers=1`;
+      const response = await fetch(sheetUrl);
+      const text = await response.text();
+      const jsonStart = text.indexOf('{');
+      const jsonEnd = text.lastIndexOf('}') + 1;
+      const jsonData = text.substring(jsonStart, jsonEnd);
+      const data = JSON.parse(jsonData);
+
+      if (data?.table?.rows) {
+        const rows = data.table.rows;
+        const depts = new Set();
+        const names = new Set();
+
+        rows.forEach(row => {
+          if (row.c) {
+            const dept = row.c[0]?.v; // Column A (index 0)
+            const name = row.c[2]?.v; // Column C (index 2)
+            if (dept) depts.add(dept.toString().trim());
+            if (name) names.add(name.toString().trim());
+          }
+        });
+
+        setMasterDepartments(Array.from(depts).filter(Boolean).sort());
+        setMasterNames(Array.from(names).filter(Boolean).sort());
+      }
+    } catch (err) {
+      console.error("Master data fetch error:", err);
+    }
+  }, [CONFIG.SHEET_ID]);
 
   const fetchDelegationData = useCallback(async () => {
     if (!currentUser || userLoading) return;
@@ -376,8 +415,124 @@ export default function QuickTask() {
       console.log("Fetching data for user:", currentUser, "with role:", userRole);
       fetchChecklistData();
       fetchDelegationData();
+      fetchMasterData();
     }
-  }, [fetchChecklistData, fetchDelegationData, currentUser, userRole, userLoading]);
+  }, [fetchChecklistData, fetchDelegationData, fetchMasterData, currentUser, userRole, userLoading]);
+
+  // Editing Handlers
+  const handleEditToggle = async (task, checked) => {
+    if (checked) {
+      // Enter edit mode
+      setEditingData(prev => ({
+        ...prev,
+        [task._id]: { ...task }
+      }));
+      setIsEditing(prev => ({ ...prev, [task._id]: true }));
+    } else {
+      // Exit edit mode without saving (cancel edit)
+      setIsEditing(prev => {
+        const newState = { ...prev };
+        delete newState[task._id];
+        return newState;
+      });
+      setEditingData(prev => {
+        const newState = { ...prev };
+        delete newState[task._id];
+        return newState;
+      });
+    }
+  };
+
+  const handleChangeEditable = (taskId, field, value) => {
+    setEditingData(prev => ({
+      ...prev,
+      [taskId]: {
+        ...prev[taskId],
+        [field]: value
+      }
+    }));
+  };
+
+  const saveAllChanges = async () => {
+    // Get all task IDs that are currently being edited
+    const editingTaskIds = Object.keys(isEditing).filter(id => isEditing[id]);
+
+    if (editingTaskIds.length === 0) {
+      alert("No tasks are currently selected for editing.");
+      return;
+    }
+
+    // Set saving state for all selected
+    const newSavingStates = {};
+    editingTaskIds.forEach(id => { newSavingStates[id] = true; });
+    setSavingTasks(prev => ({ ...prev, ...newSavingStates }));
+
+    let successCount = 0;
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec";
+
+    try {
+      // Use Promise.all to save all active edits
+      await Promise.all(editingTaskIds.map(async (taskId) => {
+        const updatedTask = editingData[taskId];
+
+        const formData = new FormData();
+        formData.append("sheetName", CONFIG.CHECKLIST_SHEET);
+        formData.append("action", "update");
+        formData.append("rowIndex", updatedTask._rowIndex);
+
+        const rowData = Array(15).fill("");
+        rowData[2] = updatedTask.Department || "";
+        rowData[3] = updatedTask['Given By'] || "";
+        rowData[4] = updatedTask.Name || "";
+        rowData[5] = updatedTask['Task Description'] || "";
+        rowData[6] = updatedTask['Start Date'] || "";
+        rowData[7] = updatedTask.Frequency || "";
+        rowData[8] = updatedTask.Reminders || "";
+        rowData[9] = updatedTask.Attachment || "";
+
+        formData.append("rowData", JSON.stringify(rowData));
+
+        const response = await fetch(SCRIPT_URL, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) throw new Error(`Failed to save task ${taskId}`);
+        const result = await response.json();
+
+        if (result.success) {
+          setTasks(prev => prev.map(t => t._id === taskId ? updatedTask : t));
+          successCount++;
+        } else {
+          throw new Error(result.error || `Save failed for task ${taskId}`);
+        }
+      }));
+
+      // If we reach here, all selected tasks fired updates.
+      if (successCount > 0) {
+        alert(`Successfully saved ${successCount} task(s)!`);
+        // Clear edit modes
+        const newIsEditing = { ...isEditing };
+        const newEditingData = { ...editingData };
+
+        editingTaskIds.forEach(id => {
+          delete newIsEditing[id];
+          delete newEditingData[id];
+        });
+
+        setIsEditing(newIsEditing);
+        setEditingData(newEditingData);
+      }
+    } catch (error) {
+      console.error("Bulk save error:", error);
+      alert("An error occurred while saving changes. Please try again.");
+    } finally {
+      // Clear saving states
+      const clearedSavingStates = { ...savingTasks };
+      editingTaskIds.forEach(id => { delete clearedSavingStates[id]; });
+      setSavingTasks(clearedSavingStates);
+    }
+  };
 
   // Show loading while fetching user data
   if (userLoading) {
@@ -563,19 +718,39 @@ export default function QuickTask() {
         <>
           {activeTab === "checklist" ? (
             <div className="mt-4 rounded-lg border border-purple-200 shadow-md bg-white overflow-hidden">
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-100 p-4">
-                <h2 className="text-purple-700 font-medium">
-                  {userRole === "admin"
-                    ? "All Unique Tasks"
-                    : "My Unique Tasks"}
-                </h2>
-                <p className="text-purple-600 text-sm">
-                  {userRole === "admin"
-                    ? "Showing all unique tasks from checklist"
-                    : CONFIG.PAGE_CONFIG.description}
-                </p>
-              </div>
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-100 p-4 flex justify-between items-start sm:items-center flex-col sm:flex-row gap-4">
+                <div>
+                  <h2 className="text-purple-700 font-medium">
+                    {userRole === "admin"
+                      ? "All Unique Tasks"
+                      : "My Unique Tasks"}
+                  </h2>
+                  <p className="text-purple-600 text-sm">
+                    {userRole === "admin"
+                      ? "Showing all unique tasks from checklist"
+                      : CONFIG.PAGE_CONFIG.description}
+                  </p>
+                </div>
 
+                <div className="flex gap-2 w-full sm:w-auto self-end sm:self-auto">
+                  {Object.values(isEditing).some(val => val) && (
+                    <button
+                      onClick={saveAllChanges}
+                      disabled={Object.values(savingTasks).some(val => val)}
+                      className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center justify-center min-w-[120px]"
+                    >
+                      {Object.values(savingTasks).some(val => val) ? (
+                        <div className="flex items-center gap-2">
+                          <div className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                          <span>Saving...</span>
+                        </div>
+                      ) : (
+                        "Submit Edits"
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
               <div
                 className="overflow-x-auto"
                 style={{ maxHeight: "calc(100vh - 220px)" }}
@@ -583,6 +758,9 @@ export default function QuickTask() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50 sticky top-0 z-20">
                     <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                        Edit
+                      </th>
                       {[
                         { key: "Department", label: "Department" },
                         { key: "Given By", label: "Given By" },
@@ -638,47 +816,166 @@ export default function QuickTask() {
                         </td>
                       </tr>
                     ) : filteredChecklistTasks.length > 0 ? (
-                      filteredChecklistTasks.map((task) => (
-                        <tr key={task._id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {task.Department || "—"}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {task["Given By"] || "—"}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {task.Name || "—"}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-500 min-w-[300px] max-w-[400px]">
-                            <div className="whitespace-normal break-words">
-                              {task["Task Description"] || "—"}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 bg-yellow-50">
-                            {task["Start Date"] || "—"}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs ${task.Frequency === "Daily"
-                                ? "bg-blue-100 text-blue-800"
-                                : task.Frequency === "Weekly"
-                                  ? "bg-green-100 text-green-800"
-                                  : task.Frequency === "Monthly"
-                                    ? "bg-purple-100 text-purple-800"
-                                    : "bg-gray-100 text-gray-800"
-                                }`}
-                            >
-                              {task.Frequency || "—"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {task.Reminders || "—"}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {task.Attachment || "—"}
-                          </td>
-                        </tr>
-                      ))
+                      filteredChecklistTasks.map((task) => {
+                        const isRowEditing = isEditing[task._id];
+                        const editData = editingData[task._id] || task;
+                        const isSaving = savingTasks[task._id];
+
+                        return (
+                          <tr key={task._id} className={`hover:bg-gray-50 ${isRowEditing ? 'bg-purple-50' : ''}`}>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {isSaving ? (
+                                <div className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-purple-500"></div>
+                              ) : (
+                                <input
+                                  type="checkbox"
+                                  checked={!!isRowEditing}
+                                  onChange={(e) => handleEditToggle(task, e.target.checked)}
+                                  className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded cursor-pointer"
+                                />
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {isRowEditing ? (
+                                <select
+                                  value={editData.Department || ""}
+                                  onChange={(e) => handleChangeEditable(task._id, 'Department', e.target.value)}
+                                  className="border p-1 rounded min-w-[120px]"
+                                >
+                                  <option value="">Select Department</option>
+                                  {masterDepartments.map(dept => (
+                                    <option key={dept} value={dept}>{dept}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                task.Department || "—"
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {isRowEditing ? (
+                                <input
+                                  type="text"
+                                  value={editData['Given By'] || ""}
+                                  onChange={(e) => handleChangeEditable(task._id, 'Given By', e.target.value)}
+                                  className="border p-1 rounded min-w-[120px]"
+                                />
+                              ) : (
+                                task["Given By"] || "—"
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {isRowEditing ? (
+                                <select
+                                  value={editData.Name || ""}
+                                  onChange={(e) => handleChangeEditable(task._id, 'Name', e.target.value)}
+                                  className="border p-1 rounded min-w-[120px]"
+                                >
+                                  <option value="">Select Name</option>
+                                  {masterNames.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                task.Name || "—"
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-500 min-w-[300px] max-w-[400px]">
+                              {isRowEditing ? (
+                                <textarea
+                                  value={editData['Task Description'] || ""}
+                                  onChange={(e) => handleChangeEditable(task._id, 'Task Description', e.target.value)}
+                                  className="border p-1 rounded w-full min-h-[60px]"
+                                />
+                              ) : (
+                                <div className="whitespace-normal break-words">
+                                  {task["Task Description"] || "—"}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 bg-yellow-50">
+                              {isRowEditing ? (
+                                <input
+                                  type="date"
+                                  value={editData['Start Date'] && editData['Start Date'].includes('/')
+                                    ? editData['Start Date'].split('/').reverse().join('-')
+                                    : editData['Start Date'] || ""
+                                  }
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val) {
+                                      const [y, m, d] = val.split('-');
+                                      handleChangeEditable(task._id, 'Start Date', `${d}/${m}/${y}`);
+                                    } else {
+                                      handleChangeEditable(task._id, 'Start Date', "");
+                                    }
+                                  }}
+                                  className="border p-1 rounded w-[130px]"
+                                />
+                              ) : (
+                                task["Start Date"] || "—"
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {isRowEditing ? (
+                                <select
+                                  value={editData.Frequency || ""}
+                                  onChange={(e) => handleChangeEditable(task._id, 'Frequency', e.target.value)}
+                                  className="border p-1 rounded"
+                                >
+                                  <option value="daily">Daily</option>
+                                  <option value="alternate-day">Alternate Day</option>
+                                  <option value="weekly">Weekly</option>
+                                  <option value="monthly">Monthly</option>
+                                  <option value="yearly">Yearly</option>
+                                  <option value="quarterly">Quarterly</option>
+                                  <option value="half-yearly">Half Yearly</option>
+                                </select>
+                              ) : (
+                                <span
+                                  className={`px-2 py-1 rounded-full text-xs ${task.Frequency === "daily"
+                                    ? "bg-blue-100 text-blue-800"
+                                    : task.Frequency === "weekly"
+                                      ? "bg-green-100 text-green-800"
+                                      : task.Frequency === "monthly"
+                                        ? "bg-purple-100 text-purple-800"
+                                        : "bg-gray-100 text-gray-800"
+                                    }`}
+                                >
+                                  {task.Frequency || "—"}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {isRowEditing ? (
+                                <select
+                                  value={editData.Reminders || ""}
+                                  onChange={(e) => handleChangeEditable(task._id, 'Reminders', e.target.value)}
+                                  className="border p-1 rounded"
+                                >
+                                  <option value="Yes">Yes</option>
+                                  <option value="No">No</option>
+                                </select>
+                              ) : (
+                                task.Reminders || "—"
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {isRowEditing ? (
+                                <select
+                                  value={editData.Attachment || ""}
+                                  onChange={(e) => handleChangeEditable(task._id, 'Attachment', e.target.value)}
+                                  className="border p-1 rounded"
+                                >
+                                  <option value="Yes">Yes</option>
+                                  <option value="No">No</option>
+                                </select>
+                              ) : (
+                                task.Attachment || "—"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
                     ) : (
                       <tr>
                         <td

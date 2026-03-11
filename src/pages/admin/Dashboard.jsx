@@ -1181,9 +1181,15 @@ export default function AdminDashboard() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        {/* MODIFIED: Updated header section to include profile image */}
-        <div className="flex flex-col justify-end gap-4 sm:flex-row sm:items-center">
-
+        {/* MODIFIED: Updated header section to include profile image and title */}
+        <div className="flex flex-col items-center justify-between gap-4 sm:flex-row sm:items-center">
+          <h1 className="text-2xl font-bold text-gray-800 text-center sm:text-left" style={{
+            background: 'linear-gradient(to right, #9333EA, #DB2777)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+            color: 'transparent'
+          }}>Checklist & Delegation</h1>
 
           <div className="flex items-center gap-4">
             <div className="relative group">
@@ -1216,13 +1222,13 @@ export default function AdminDashboard() {
                 </div>
               ) : (
                 <div className="relative group">
-                  <div
+                  {/* <div
                     className="w-15 h-15 rounded-full bg-purple-500 flex items-center justify-center border-2 border-purple-600 cursor-pointer transition-all duration-200 group-hover:brightness-75"
                     style={{ width: "60px", height: "60px" }}
                     onClick={() => setShowLinkInputModal(true)}
                   >
                     <User className="h-6 w-6 text-white" />
-                  </div>
+                  </div> */}
                   <div
                     className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black bg-opacity-30 rounded-full cursor-pointer"
                     onClick={() => setShowLinkInputModal(true)}

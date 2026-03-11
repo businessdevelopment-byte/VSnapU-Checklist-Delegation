@@ -185,6 +185,7 @@ const MemoizedTaskRow = memo(({
           <option value="">Select...</option>
           <option value="Yes">Yes</option>
           <option value="No">No</option>
+          <option value="Not Required">Not Required</option>
         </select>
       </td>
       <td className={`px-3 py-4 ${isNotToday ? "bg-white border-l-4 border-white" : "hover:bg-gray-50"} min-w-[150px]`}>
