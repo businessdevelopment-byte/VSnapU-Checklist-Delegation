@@ -133,7 +133,7 @@ const MemoizedTaskRow = memo(({
   onImageUpload
 }) => {
   const taskStatus = getTaskStatus(account["col10"], account["col15"], account["col6"], account["col4"]);
-  const isDisabled = taskStatus === "Admin Done" || taskStatus === "Done" || taskStatus === "Disabled";
+  const isDisabled = taskStatus === "Admin Done" || taskStatus === "Done";
   const isNotToday = taskStatus === "Disabled";
 
   return (

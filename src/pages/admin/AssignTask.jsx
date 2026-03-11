@@ -298,7 +298,7 @@ export default function AssignTask() {
 
       const url = `https://docs.google.com/spreadsheets/d/${masterSheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
         masterSheetName
-      )}`;
+      )}&headers=1`;
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -322,7 +322,7 @@ export default function AssignTask() {
       const doers = [];
 
       // Process all rows starting from index 1 (skip header)
-      data.table.rows.slice(1).forEach((row) => {
+      data.table.rows.forEach((row) => {
         // Column A - Departments
         if (row.c && row.c[0] && row.c[0].v) {
           const value = row.c[0].v.toString().trim();
@@ -467,7 +467,7 @@ export default function AssignTask() {
         const masterSheetName = "master";
         const url = `https://docs.google.com/spreadsheets/d/${masterSheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
           masterSheetName
-        )}`;
+        )}&headers=1`;
 
         const response = await fetch(url);
         if (!response.ok)
@@ -486,7 +486,7 @@ export default function AssignTask() {
 
         // Extract doers from column C (index 2)
         const allDoers = [];
-        data.table.rows.slice(1).forEach((row) => {
+        data.table.rows.forEach((row) => {
           if (row.c && row.c[2] && row.c[2].v) {
             const value = row.c[2].v.toString().trim();
             if (value !== "") allDoers.push(value);
@@ -577,7 +577,7 @@ export default function AssignTask() {
     try {
       const url = `https://docs.google.com/spreadsheets/d/1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
         sheetName
-      )}`;
+      )}&headers=1`;
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -629,7 +629,7 @@ export default function AssignTask() {
 
       const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
         sheetName
-      )}`;
+      )}&headers=1`;
 
       const response = await fetch(url);
       if (!response.ok) {
