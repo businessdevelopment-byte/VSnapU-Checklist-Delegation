@@ -625,7 +625,7 @@ function AccountDataPage() {
     let filtered = accountData;
 
     if (debouncedSearchTerm) {
-      const lowerSearchTerm = searchTerm.toLowerCase();
+      const lowerSearchTerm = debouncedSearchTerm.toLowerCase();
       filtered = filtered.filter((account) =>
         Object.values(account).some(
           (value) => value && value.toString().toLowerCase().includes(lowerSearchTerm),
@@ -1090,25 +1090,42 @@ function AccountDataPage() {
       e.stopPropagation();
       const checked = e.target.checked;
 
-      if (checked) {
-        // Only select items that are not disabled (today's tasks only)
-        const enabledIds = filteredAccountData
-          .filter((item) => {
-            const taskStatus = getTaskStatus(item["col10"], item["col15"], item["col6"]);
-            return taskStatus !== "Admin Done" && taskStatus !== "Done" && taskStatus !== "Disabled";
-          })
-          .map((item) => item._id);
+      const enabledItems = filteredAccountData.filter((item) => {
+        const taskStatus = getTaskStatus(
+          item["col10"],
+          item["col15"],
+          item["col6"],
+          item["col4"]
+        );
+        return taskStatus !== "Admin Done" && taskStatus !== "Done";
+      });
 
-        setSelectedItems(new Set(enabledIds));
-        console.log(`Selected all enabled items: ${enabledIds}`);
-      } else {
-        setSelectedItems(new Set());
-        setAdditionalData({});
-        setRemarksData({});
-        console.log("Cleared all selections");
+      setSelectedItems((prev) => {
+        const next = new Set(prev);
+        enabledItems.forEach((item) => {
+          if (checked) {
+            next.add(item._id);
+          } else {
+            next.delete(item._id);
+          }
+        });
+        return next;
+      });
+
+      if (!checked) {
+        setAdditionalData((prev) => {
+          const next = { ...prev };
+          enabledItems.forEach((item) => delete next[item._id]);
+          return next;
+        });
+        setRemarksData((prev) => {
+          const next = { ...prev };
+          enabledItems.forEach((item) => delete next[item._id]);
+          return next;
+        });
       }
     },
-    [filteredAccountData],
+    [filteredAccountData]
   );
 
   // Add these optimized handlers inside the component
@@ -2370,32 +2387,21 @@ function AccountDataPage() {
                           type="checkbox"
                           className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                           checked={
-                            // Only consider enabled items for select all
-                            filteredAccountData.filter((item) => {
-                              const taskStatus = getTaskStatus(
-                                item["col10"],
-                                item["col15"],
-                                item["col6"]
-                              );
+                            (() => {
+                              const enabledItems = filteredAccountData.filter((item) => {
+                                const taskStatus = getTaskStatus(
+                                  item["col10"],
+                                  item["col15"],
+                                  item["col6"],
+                                  item["col4"]
+                                );
+                                return taskStatus !== "Admin Done" && taskStatus !== "Done";
+                              });
                               return (
-                                taskStatus !== "Admin Done" &&
-                                taskStatus !== "Done" &&
-                                taskStatus !== "Disabled"
+                                enabledItems.length > 0 &&
+                                enabledItems.every((item) => selectedItems.has(item._id))
                               );
-                            }).length > 0 &&
-                            selectedItems.size ===
-                            filteredAccountData.filter((item) => {
-                              const taskStatus = getTaskStatus(
-                                item["col10"],
-                                item["col15"],
-                                item["col6"]
-                              );
-                              return (
-                                taskStatus !== "Admin Done" &&
-                                taskStatus !== "Done" &&
-                                taskStatus !== "Disabled"
-                              );
-                            }).length
+                            })()
                           }
                           onChange={handleSelectAllItems}
                         />
@@ -2512,32 +2518,21 @@ function AccountDataPage() {
                       type="checkbox"
                       className="h-5 w-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                       checked={
-                        // Only consider enabled items for select all
-                        filteredAccountData.filter((item) => {
-                          const taskStatus = getTaskStatus(
-                            item["col10"],
-                            item["col15"],
-                            item["col6"]
-                          );
+                        (() => {
+                          const enabledItems = filteredAccountData.filter((item) => {
+                            const taskStatus = getTaskStatus(
+                              item["col10"],
+                              item["col15"],
+                              item["col6"],
+                              item["col4"]
+                            );
+                            return taskStatus !== "Admin Done" && taskStatus !== "Done";
+                          });
                           return (
-                            taskStatus !== "Admin Done" &&
-                            taskStatus !== "Done" &&
-                            taskStatus !== "Disabled"
+                            enabledItems.length > 0 &&
+                            enabledItems.every((item) => selectedItems.has(item._id))
                           );
-                        }).length > 0 &&
-                        selectedItems.size ===
-                        filteredAccountData.filter((item) => {
-                          const taskStatus = getTaskStatus(
-                            item["col10"],
-                            item["col15"],
-                            item["col6"]
-                          );
-                          return (
-                            taskStatus !== "Admin Done" &&
-                            taskStatus !== "Done" &&
-                            taskStatus !== "Disabled"
-                          );
-                        }).length
+                        })()
                       }
                       onChange={handleSelectAllItems}
                     />
@@ -2549,12 +2544,13 @@ function AccountDataPage() {
                     const taskStatus = getTaskStatus(
                       account["col10"],
                       account["col15"],
-                      account["col6"]
+                      account["col6"],
+                      account["col4"]
                     );
                     const isDisabled =
                       taskStatus === "Admin Done" ||
-                      taskStatus === "Done" ||
-                      taskStatus === "Disabled";
+                      taskStatus === "Done";
+                    // taskStatus === "Disabled"; // Overdue tasks should NOT be disabled anymore
 
                     return (
                       <div
