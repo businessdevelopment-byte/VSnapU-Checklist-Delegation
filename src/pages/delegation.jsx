@@ -853,11 +853,17 @@ function DelegationDataPage() {
   );
 
   const handleImageUpload = useCallback(async (id, e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
 
     setAccountData((prev) =>
-      prev.map((item) => (item._id === id ? { ...item, image: file } : item))
+      prev.map((item) => {
+        if (item._id === id) {
+          const existingImages = Array.isArray(item.images) ? item.images : [];
+          return { ...item, images: [...existingImages, ...files] };
+        }
+        return item;
+      })
     );
   }, []);
 
@@ -935,7 +941,7 @@ function DelegationDataPage() {
       const item = accountData.find((account) => account._id === id);
       const requiresAttachment =
         item["col9"] && item["col9"].toUpperCase() === "YES";
-      return requiresAttachment && !item.image;
+      return requiresAttachment && (!item.images || item.images.length === 0);
     });
 
     if (missingRequiredImages.length > 0) {
@@ -1068,37 +1074,43 @@ function DelegationDataPage() {
 
       await Promise.all(
         batch.map(async ({ id, item }) => {
-          let imageUrl = "";
+          let imageUrls = [];
 
-          if (item.image instanceof File) {
-            try {
-              const base64Data = await fileToBase64(item.image);
+          if (Array.isArray(item.images) && item.images.length > 0) {
+            for (const image of item.images) {
+              if (image instanceof File) {
+                try {
+                  const base64Data = await fileToBase64(image);
 
-              const uploadFormData = new FormData();
-              uploadFormData.append("action", "uploadFile");
-              uploadFormData.append("base64Data", base64Data);
-              uploadFormData.append(
-                "fileName",
-                `task_${item["col1"]}_${Date.now()}.${item.image.name
-                  .split(".")
-                  .pop()}`
-              );
-              uploadFormData.append("mimeType", item.image.type);
-              uploadFormData.append("folderId", CONFIG.DRIVE_FOLDER_ID);
+                  const uploadFormData = new FormData();
+                  uploadFormData.append("action", "uploadFile");
+                  uploadFormData.append("base64Data", base64Data);
+                  uploadFormData.append(
+                    "fileName",
+                    `task_${item["col1"]}_${Date.now()}_${Math.random().toString(36).substring(7)}.${image.name
+                      .split(".")
+                      .pop()}`
+                  );
+                  uploadFormData.append("mimeType", image.type);
+                  uploadFormData.append("folderId", CONFIG.DRIVE_FOLDER_ID);
 
-              const uploadResponse = await fetch(CONFIG.APPS_SCRIPT_URL, {
-                method: "POST",
-                body: uploadFormData,
-              });
+                  const uploadResponse = await fetch(CONFIG.APPS_SCRIPT_URL, {
+                    method: "POST",
+                    body: uploadFormData,
+                  });
 
-              const uploadResult = await uploadResponse.json();
-              if (uploadResult.success) {
-                imageUrl = uploadResult.fileUrl;
+                  const uploadResult = await uploadResponse.json();
+                  if (uploadResult.success) {
+                    imageUrls.push(uploadResult.fileUrl);
+                  }
+                } catch (uploadError) {
+                  console.error("Error uploading image:", uploadError);
+                }
               }
-            } catch (uploadError) {
-              console.error("Error uploading image:", uploadError);
             }
           }
+
+          const finalImageUrl = imageUrls.join(",");
 
           // Format the next target date properly if it exists
           let formattedNextTargetDate = "";
@@ -1119,7 +1131,7 @@ function DelegationDataPage() {
             statusData[id] || "",
             formattedNextTargetDate,
             remarksData[id] || "",
-            imageUrl,
+            finalImageUrl,
             "", // Column G
             username, // Column H - Store the logged-in username
             item["col5"] || "", // Column I - Task description from col5
@@ -1952,22 +1964,30 @@ function DelegationDataPage() {
 
                               <td className="px-6 py-4 whitespace-nowrap">
                                 {history["col5"] ? (
-                                  <a
-                                    href={history["col5"]}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-blue-600 hover:text-blue-800 underline flex items-center"
-                                  >
-                                    <img
-                                      src={
-                                        history["col5"] ||
-                                        "/api/placeholder/32/32"
-                                      }
-                                      alt="Attachment"
-                                      className="h-8 w-8 object-cover rounded-md mr-2"
-                                    />
-                                    View
-                                  </a>
+                                  <div className="flex flex-wrap gap-2 max-w-[200px]">
+                                    {history["col5"].split(",").map((url, idx) => (
+                                      <a
+                                        key={idx}
+                                        href={url.trim()}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:text-blue-800 underline flex items-center"
+                                      >
+                                        <img
+                                          src={url.trim()}
+                                          alt={`Attachment ${idx + 1}`}
+                                          className="h-8 w-8 object-cover rounded-md border border-gray-200"
+                                          onError={(e) => {
+                                            e.target.onerror = null;
+                                            e.target.src = "/api/placeholder/32/32";
+                                          }}
+                                        />
+                                      </a>
+                                    ))}
+                                    <span className="text-xs text-blue-600 self-center">
+                                      ({history["col5"].split(",").length})
+                                    </span>
+                                  </div>
                                 ) : (
                                   <span className="text-gray-400">
                                     No attachment
@@ -2130,16 +2150,48 @@ function DelegationDataPage() {
 
                           <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
                             <div>
-                              {account.image ? (
-                                <div className="flex items-center gap-2">
-                                  <img src={typeof account.image === "string" ? account.image : URL.createObjectURL(account.image)} alt="Receipt" className="h-10 w-10 object-cover rounded-md" />
-                                  <div className="text-xs text-gray-600">{account.image instanceof File ? "Ready to upload" : <button className="text-purple-600" onClick={() => window.open(account.image, "_blank")}>View</button>}</div>
+                              {Array.isArray(account.images) && account.images.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {account.images.map((img, idx) => (
+                                    <div key={idx} className="relative">
+                                      <img
+                                        src={typeof img === "string" ? img : URL.createObjectURL(img)}
+                                        alt={`Upload ${idx + 1}`}
+                                        className="h-10 w-10 object-cover rounded-md border border-gray-200"
+                                      />
+                                      <button
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          setAccountData(prev => prev.map(item => {
+                                            if (item._id === account._id) {
+                                              return { ...item, images: item.images.filter((_, i) => i !== idx) };
+                                            }
+                                            return item;
+                                          }));
+                                        }}
+                                        className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5"
+                                      >
+                                        <X size={8} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <label className="flex items-center justify-center h-10 w-10 border-2 border-dashed border-purple-200 rounded-md cursor-pointer hover:border-purple-400">
+                                    <Upload size={14} className="text-purple-400" />
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      accept="image/*"
+                                      multiple
+                                      onChange={(e) => handleImageUpload(account._id, e)}
+                                      disabled={!isSelected || isTaskDisabled(account["col20"], userRole)}
+                                    />
+                                  </label>
                                 </div>
                               ) : (
                                 <label className={`flex items-center cursor-pointer text-xs text-purple-600 hover:text-purple-800`}>
                                   <Upload className="h-4 w-4 mr-1" />
                                   <span>{account["col9"]?.toUpperCase() === "YES" ? "Required Upload" : "Upload Image"}</span>
-                                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(account._id, e)} disabled={!isSelected || isTaskDisabled(account["col20"], userRole)} />
+                                  <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleImageUpload(account._id, e)} disabled={!isSelected || isTaskDisabled(account["col20"], userRole)} />
                                 </label>
                               )}
                             </div>
@@ -2418,34 +2470,42 @@ function DelegationDataPage() {
                                 className={`px-6 py-4 whitespace-nowrap ${!account["col17"] ? "bg-orange-50" : ""
                                   }`}
                               >
-                                {account.image ? (
-                                  <div className="flex items-center">
-                                    <img
-                                      src={
-                                        typeof account.image === "string"
-                                          ? account.image
-                                          : URL.createObjectURL(account.image)
-                                      }
-                                      alt="Receipt"
-                                      className="h-10 w-10 object-cover rounded-md mr-2"
-                                    />
-                                    <div className="flex flex-col">
-                                      {/* <span className="text-xs text-gray-500"> */}
-                                      {account.image instanceof File ? (
-                                        <span className="text-xs text-green-600">
-                                          Ready to upload
-                                        </span>
-                                      ) : (
+                                {Array.isArray(account.images) && account.images.length > 0 ? (
+                                  <div className="flex flex-wrap gap-2 max-w-[200px]">
+                                    {account.images.map((img, idx) => (
+                                      <div key={idx} className="relative group">
+                                        <img
+                                          src={typeof img === "string" ? img : URL.createObjectURL(img)}
+                                          alt={`Upload ${idx + 1}`}
+                                          className="h-10 w-10 object-cover rounded-md border border-gray-200"
+                                        />
                                         <button
-                                          className="text-xs text-purple-600 hover:text-purple-800"
-                                          onClick={() =>
-                                            window.open(account.image, "_blank")
-                                          }
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            setAccountData(prev => prev.map(item => {
+                                              if (item._id === account._id) {
+                                                return { ...item, images: item.images.filter((_, i) => i !== idx) };
+                                              }
+                                              return item;
+                                            }));
+                                          }}
+                                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                                         >
-                                          View Full Image
+                                          <X size={8} />
                                         </button>
-                                      )}
-                                    </div>
+                                      </div>
+                                    ))}
+                                    <label className="flex items-center justify-center h-10 w-10 border-2 border-dashed border-purple-200 rounded-md cursor-pointer hover:border-purple-400">
+                                      <Upload size={14} className="text-purple-400" />
+                                      <input
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/*"
+                                        multiple
+                                        onChange={(e) => handleImageUpload(account._id, e)}
+                                        disabled={!isSelected || isTaskDisabled(account["col20"], userRole)}
+                                      />
+                                    </label>
                                   </div>
                                 ) : (
                                   <label
@@ -2467,6 +2527,7 @@ function DelegationDataPage() {
                                       type="file"
                                       className="hidden"
                                       accept="image/*"
+                                      multiple
                                       onChange={(e) =>
                                         handleImageUpload(account._id, e)
                                       }

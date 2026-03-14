@@ -321,6 +321,7 @@ function AccountDataPage() {
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false)
   const [leaveStartDate, setLeaveStartDate] = useState("")
   const [leaveEndDate, setLeaveEndDate] = useState("")
+  const [leaveMember, setLeaveMember] = useState("")
 
   // Admin history selection states
   const [selectedHistoryItems, setSelectedHistoryItems] = useState([])
@@ -1208,6 +1209,17 @@ function AccountDataPage() {
       return;
     }
 
+    // Validation for Status (Mandatory)
+    const missingStatus = selectedItemsArray.filter((id) => {
+      const status = additionalData[id];
+      return !status || status.toString().trim() === "";
+    });
+
+    if (missingStatus.length > 0) {
+      alert(`Please select a status for all selected items. ${missingStatus.length} item(s) are missing a status.`);
+      return;
+    }
+
     // Existing validation checks remain the same
     const missingRemarks = selectedItemsArray.filter((id) => {
       const additionalStatus = additionalData[id];
@@ -1348,12 +1360,18 @@ function AccountDataPage() {
     const dateStr = `${yyyy}-${mm}-${dd}`;
     setLeaveStartDate(dateStr);
     setLeaveEndDate(dateStr);
+    setLeaveMember(""); // Reset selected member
     setIsLeaveModalOpen(true);
   };
 
   const confirmLeaveSubmit = async () => {
     if (!leaveStartDate || !leaveEndDate) {
       alert("Please select both start and end dates for the leave.");
+      return;
+    }
+
+    if (userRole === "admin" && !leaveMember) {
+      alert("Please select a member for the leave.");
       return;
     }
 
@@ -1413,7 +1431,9 @@ function AccountDataPage() {
 
         let isUserMatch = false;
         if (userRole === "admin") {
-          if (selectedMembers.length > 0) {
+          if (leaveMember) {
+            isUserMatch = assignedTo.toLowerCase() === leaveMember.toLowerCase();
+          } else if (selectedMembers.length > 0) {
             isUserMatch = selectedMembers.includes(assignedTo);
           } else {
             isUserMatch = assignedTo.toLowerCase() === username.toLowerCase();
@@ -2832,6 +2852,23 @@ function AccountDataPage() {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
             <h2 className="text-xl font-bold text-gray-800 mb-4">Select Leave Dates</h2>
             <div className="mb-4">
+              {userRole === "admin" && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Select Member</label>
+                  <select
+                    value={leaveMember}
+                    onChange={(e) => setLeaveMember(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">Select Member...</option>  
+                    {membersList.map((member) => (
+                      <option key={member} value={member}>
+                        {member}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
               <input
                 type="date"
