@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   Edit,
   Filter,
+  Trash2,
 } from "lucide-react";
 import AdminLayout from "../components/layout/AdminLayout";
 
@@ -714,8 +715,8 @@ function DelegationDataPage() {
           _taskId: taskId,
         };
 
-        // Map all columns including timestamp (column A)
-        for (let i = 0; i < 21; i++) {
+        // Map all columns including timestamp (column A) and column V (index 21)
+        for (let i = 0; i < 22; i++) {
           if (i === 0 || i === 6 || i === 10) {
             // Column A (0), G (6), K (10) are dates
             rowData[`col${i}`] = rowValues[i]
@@ -741,6 +742,12 @@ function DelegationDataPage() {
         const taskStatus = rowData["col20"]; // Column U (Status)
         if (taskStatus && taskStatus.toString().trim().toLowerCase() === "done") {
           return; // Skip Done tasks from regular view
+        }
+
+        // ✅ Filter out "Deleted" rows (Column V = index 21)
+        const deletedFlag = rowData["col21"];
+        if (deletedFlag && deletedFlag.toString().trim().toLowerCase() === "deleted") {
+          return; // Skip deleted rows
         }
 
         allDelegationData.push(rowData);
@@ -851,6 +858,48 @@ function DelegationDataPage() {
     },
     [filteredAccountData, isTaskDisabled, selectedItems, userRole]
   );
+
+  const handleDeleteRow = useCallback(async (account) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete this task (ID: ${account["col1"] || account._rowIndex})? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    try {
+      // Build a 22-element array; only index 21 (Column V) has "Deleted".
+      // The Apps Script 'update' action skips cells where the value is "".
+      const rowData = Array(22).fill("");
+      rowData[21] = "Deleted";
+
+      const formData = new FormData();
+      formData.append("sheetName", CONFIG.SOURCE_SHEET_NAME);
+      formData.append("action", "update");
+      formData.append("rowIndex", account._rowIndex);
+      formData.append("rowData", JSON.stringify(rowData));
+
+      const response = await fetch(CONFIG.APPS_SCRIPT_URL, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        // Remove row from local state immediately
+        setAccountData((prev) => prev.filter((item) => item._id !== account._id));
+        setDelegationData((prev) => prev.filter((item) => item._id !== account._id));
+        setSuccessMessage(`Task deleted successfully!`);
+      } else {
+        throw new Error(result.error || "Failed to delete task");
+      }
+    } catch (error) {
+      console.error("Error deleting task:", error);
+      alert("Failed to delete task: " + error.message);
+    }
+  }, [CONFIG.APPS_SCRIPT_URL, CONFIG.SOURCE_SHEET_NAME]);
 
   const handleImageUpload = useCallback(async (id, e) => {
     const files = Array.from(e.target.files);
@@ -2195,7 +2244,18 @@ function DelegationDataPage() {
                                 </label>
                               )}
                             </div>
-                            <div className="text-xs text-gray-500">{account["col2"] || "—"}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-xs text-gray-500">{account["col2"] || "—"}</div>
+                              {userRole === "admin" && (
+                                <button
+                                  onClick={() => handleDeleteRow(account)}
+                                  className="flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 rounded-full p-1.5 transition-colors"
+                                  title="Delete this row"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -2290,6 +2350,11 @@ function DelegationDataPage() {
                         >
                           Upload Image
                         </th>
+                        {userRole === "admin" && (
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Delete
+                          </th>
+                        )}
                       </tr>
                       {loading && <LoadingBuffer />}
                     </thead>
@@ -2539,6 +2604,17 @@ function DelegationDataPage() {
                                   </label>
                                 )}
                               </td>
+                              {userRole === "admin" && (
+                                <td className="px-4 py-4 whitespace-nowrap">
+                                  <button
+                                    onClick={() => handleDeleteRow(account)}
+                                    className="flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 rounded-full p-1.5 transition-colors"
+                                    title="Delete this row"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           );
                         })

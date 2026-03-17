@@ -1448,6 +1448,9 @@ function AccountDataPage() {
           const taskDate = parseDateFromDDMMYYYY(formattedDate);
 
           if (taskDate && taskDate >= startObj && taskDate <= endObj) {
+            // ✅ Skip Sundays — no tasks are generated on Sundays
+            if (taskDate.getDay() === 0) return;
+
             const taskId = rowValues[1];
             if (taskId) {
               const rowDataPayload = Array(17).fill("");
@@ -1470,22 +1473,34 @@ function AccountDataPage() {
         return;
       }
 
-      const updatePromises = tasksToUpdate.map(async (task) => {
-        const formData = new FormData();
-        formData.append("sheetName", CONFIG.SHEET_NAME);
-        formData.append("action", "update");
-        formData.append("rowIndex", task.rowIndex);
-        formData.append("rowData", JSON.stringify(task.rowData));
+      // ✅ Process in sequential batches of 5 to avoid overwhelming Apps Script
+      const BATCH_SIZE = 5;
+      const failures = [];
 
-        const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
-          method: "POST",
-          body: formData,
-        });
-        return res.json();
-      });
+      for (let i = 0; i < tasksToUpdate.length; i += BATCH_SIZE) {
+        const batch = tasksToUpdate.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map(async (task) => {
+            try {
+              const formData = new FormData();
+              formData.append("sheetName", CONFIG.SHEET_NAME);
+              formData.append("action", "update");
+              formData.append("rowIndex", task.rowIndex);
+              formData.append("rowData", JSON.stringify(task.rowData));
 
-      const results = await Promise.all(updatePromises);
-      const failures = results.filter(r => !r.success);
+              const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+                method: "POST",
+                body: formData,
+              });
+              const json = await res.json();
+              return json;
+            } catch (err) {
+              return { success: false, error: err.message };
+            }
+          })
+        );
+        batchResults.forEach(r => { if (!r.success) failures.push(r); });
+      }
 
       if (failures.length > 0) {
         console.error("Some updates failed", failures);
