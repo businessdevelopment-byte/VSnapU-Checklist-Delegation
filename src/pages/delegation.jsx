@@ -988,6 +988,12 @@ function DelegationDataPage() {
 
     const missingRequiredImages = selectedItemsArray.filter((id) => {
       const item = accountData.find((account) => account._id === id);
+
+      // Make it optional for admin if it's a Verify Pending task
+      if (userRole === "admin" && item["col20"] === "Verify Pending") {
+        return false;
+      }
+
       const requiresAttachment =
         item["col9"] && item["col9"].toUpperCase() === "YES";
       return requiresAttachment && (!item.images || item.images.length === 0);
@@ -2239,7 +2245,7 @@ function DelegationDataPage() {
                               ) : (
                                 <label className={`flex items-center cursor-pointer text-xs text-purple-600 hover:text-purple-800`}>
                                   <Upload className="h-4 w-4 mr-1" />
-                                  <span>{account["col9"]?.toUpperCase() === "YES" ? "Required Upload" : "Upload Image"}</span>
+                                  <span>{account["col9"]?.toUpperCase() === "YES" ? (userRole === "admin" && account["col20"] === "Verify Pending" ? "Optional Upload" : "Required Upload") : "Upload Image"}</span>
                                   <input type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleImageUpload(account._id, e)} disabled={!isSelected || isTaskDisabled(account["col20"], userRole)} />
                                 </label>
                               )}
@@ -2582,9 +2588,9 @@ function DelegationDataPage() {
                                     <Upload className="h-4 w-4 mr-1" />
                                     <span className="text-xs">
                                       {account["col9"]?.toUpperCase() === "YES"
-                                        ? "Required Upload"
+                                        ? (userRole === "admin" && account["col20"] === "Verify Pending" ? "Optional Upload" : "Required Upload")
                                         : "Upload Image"}
-                                      {account["col9"]?.toUpperCase() === "YES" && (
+                                      {account["col9"]?.toUpperCase() === "YES" && (userRole !== "admin" || account["col20"] !== "Verify Pending") && (
                                         <span className="text-red-500 ml-1">*</span>
                                       )}
                                     </span>
