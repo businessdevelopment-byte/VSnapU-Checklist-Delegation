@@ -45,44 +45,64 @@ const LoginPage = () => {
       const SCRIPT_URL =
         "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec";
 
+      // Helper: fetch with timeout (60s to handle Apps Script cold starts)
+      const fetchWithTimeout = async (timeoutMs = 60000) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          return await fetch(`${SCRIPT_URL}?action=getMasterData`, {
+            method: "GET",
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      };
+
       try {
         setIsDataLoading(true);
 
-        // Get the spreadsheet ID from your Apps Script
-        const SPREADSHEET_ID = "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA";
+        // Attempt 1 — retry once after 3s if Apps Script cold-start causes a timeout
+        let response;
+        try {
+          response = await fetchWithTimeout(60000);
+        } catch (firstError) {
+          console.warn("First fetch attempt failed, retrying in 3s...", firstError.message);
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          response = await fetchWithTimeout(60000); // Attempt 2
+        }
 
-        // Construct the URL to read the sheet data directly
-        const sheetUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json&sheet=master&headers=1`;
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status} ${response.statusText}`);
+        }
 
-        const response = await fetch(sheetUrl);
-        const text = await response.text();
+        const data = await response.json();
 
-        // Parse the Google Sheets JSON response
-        const jsonString = text.substring(47).slice(0, -2); // Remove Google's wrapper
-        const data = JSON.parse(jsonString);
+        if (!data.success) {
+          throw new Error(data.error || "Failed to fetch master data");
+        }
 
         // Create userCredentials and userRoles objects from the sheet data
         const userCredentials = {};
         const userRoles = {};
         const userEmails = {};
 
-        // Process the data rows (skip header row if it exists)
-        if (data.table && data.table.rows) {
-          //console.log("Raw sheet data:", data.table.rows);
+        // getMasterData returns { success: true, rows: [[col0,col1,...], ...] }
+        // rows[0] is the header row — skip it and start from index 1
+        if (data.rows && Array.isArray(data.rows)) {
+          //console.log("Raw sheet data rows count:", data.rows.length);
 
-          // Start from index 0 since headers=1 extracts the single header row
-          for (let i = 0; i < data.table.rows.length; i++) {
-            const row = data.table.rows[i];
+          for (let i = 1; i < data.rows.length; i++) {
+            const row = data.rows[i];
+            if (!row) continue;
 
-            // Extract data from columns C, D, E (indices 2, 3, 4)
-            const username = row.c[2]
-              ? String(row.c[2].v || "").trim()
-              : "";
-            const password = row.c[3] ? String(row.c[3].v || "").trim() : "";
-            const role = row.c[4] ? String(row.c[4].v || "").trim() : "user";
-            const email = row.c[5] ? String(row.c[5].v || "").trim() : "";
+            // Columns: C=index 2 (Username), D=index 3 (Password), E=index 4 (Role), F=index 5 (Email)
+            const username = row[2] ? String(row[2]).trim() : "";
+            const password = row[3] ? String(row[3]).trim() : "";
+            const role     = row[4] ? String(row[4]).trim() : "user";
+            const email    = row[5] ? String(row[5]).trim() : "";
 
-            //console.log(`Processing row ${i}: username=${username}, password=${password}, role=${role}`);
+            //console.log(`Processing row ${i}: username=${username}, role=${role}`);
 
             // Only process if we have both username and password
             if (username && password && password.trim() !== "") {
@@ -95,10 +115,9 @@ const LoginPage = () => {
               // Store normalized role for comparison
               const normalizedRole = role.toLowerCase();
 
-              // Store in our maps
               userCredentials[username] = password;
-              userRoles[username] = normalizedRole;
-              userEmails[username] = email;
+              userRoles[username]       = normalizedRole;
+              userEmails[username]      = email;
 
               //console.log(`Added credential for: ${username}, Role: ${normalizedRole}`);
             }
@@ -106,9 +125,7 @@ const LoginPage = () => {
         }
 
         setMasterData({ userCredentials, userRoles, userEmails });
-        //console.log("Loaded credentials from master sheet:", Object.keys(userCredentials).length)
-        //console.log("Credentials map:", userCredentials)
-        //console.log("Roles map:", userRoles)
+        //console.log("Loaded credentials from master sheet:", Object.keys(userCredentials).length);
 
         // Debug - check admin roles specifically
         const adminUsers = Object.entries(userRoles)
@@ -117,27 +134,8 @@ const LoginPage = () => {
         //console.log("Admin users found:", adminUsers);
       } catch (error) {
         console.error("Error Fetching Master Data:", error);
-
-        // Fallback: Try the alternative method using your Apps Script
-        try {
-          //console.log("Trying alternative method...");
-          const fallbackResponse = await fetch(SCRIPT_URL, {
-            method: "GET",
-          });
-
-          if (fallbackResponse.ok) {
-            //console.log("Apps Script is accessible, but getMasterData action needs to be implemented");
-            showToast(
-              "Unable to load user data. Please contact administrator.",
-              "error"
-            );
-          }
-        } catch (fallbackError) {
-          console.error("Fallback also failed:", fallbackError);
-        }
-
         showToast(
-          `Network error: ${error.message}. Please try again later.`,
+          `Unable to load user data: ${error.message}. Please refresh and try again.`,
           "error"
         );
       } finally {
