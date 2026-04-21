@@ -6,7 +6,7 @@ import AdminLayout from "../../components/layout/AdminLayout"
 import ReactDOM from 'react-dom';
 
 // Google Apps Script URL
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz47q4SiLvJJom8dRGteqjhufs0Iui4rYTLMeTYqOgY_MFrS0C0o0XkRCPzAOdEeg4jqg/exec"
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxGu33pg_zLzyWXoiCgLNq7mIrVxc9FAJSZmyM3Qn-tz3U2A-rm03HYm_SEmNrzpdMP/exec"
 // Google Drive folder ID
 const DRIVE_FOLDER_ID = "1vyjH9ZFEzplMJVnjgGbbDpSfZ_Toj6-Z"
 

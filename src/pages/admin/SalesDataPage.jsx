@@ -7,7 +7,7 @@ import AdminLayout from "../../components/layout/AdminLayout"
 const CONFIG = {
   // Google Apps Script URL
   APPS_SCRIPT_URL:
-    "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec",
+    "https://script.google.com/macros/s/AKfycbxGu33pg_zLzyWXoiCgLNq7mIrVxc9FAJSZmyM3Qn-tz3U2A-rm03HYm_SEmNrzpdMP/exec",
   // Google Drive folder ID for file uploads
   DRIVE_FOLDER_ID: "1vyjH9ZFEzplMJVnjgGbbDpSfZ_Toj6-Z",
   // Sheet name to work with
@@ -2875,7 +2875,7 @@ function AccountDataPage() {
                     onChange={(e) => setLeaveMember(e.target.value)}
                     className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
-                    <option value="">Select Member...</option>  
+                    <option value="">Select Member...</option>
                     {membersList.map((member) => (
                       <option key={member} value={member}>
                         {member}

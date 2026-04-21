@@ -32,7 +32,7 @@ export default function QuickTask() {
   const [masterNames, setMasterNames] = useState([]);
 
   const CONFIG = {
-    SHEET_ID: "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA",
+    SHEET_ID: "1M2wyD1VCoPK36HuVUOlD6sEUjWkJLzZDIP3Gp13kH4k",
     WHATSAPP_SHEET: "Whatsapp", // For login credentials and user roles
     CHECKLIST_SHEET: "Unique", // For unique checklist tasks
     DELEGATION_SHEET: "Delegation", // For delegation tasks
@@ -468,7 +468,7 @@ export default function QuickTask() {
     setSavingTasks(prev => ({ ...prev, ...newSavingStates }));
 
     let successCount = 0;
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec";
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxGu33pg_zLzyWXoiCgLNq7mIrVxc9FAJSZmyM3Qn-tz3U2A-rm03HYm_SEmNrzpdMP/exec";
 
     try {
       // Use Promise.all to save all active edits

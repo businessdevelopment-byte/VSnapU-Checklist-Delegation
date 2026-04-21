@@ -88,7 +88,7 @@ export default function AdminDashboard() {
   const fetchUserProfileFromSheets = async (username) => {
     try {
       // Fetch from master sheet for email
-      const masterResponse = await fetch(`https://docs.google.com/spreadsheets/d/1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA/gviz/tq?tqx=out:json&sheet=master`);
+      const masterResponse = await fetch(`https://docs.google.com/spreadsheets/d/1M2wyD1VCoPK36HuVUOlD6sEUjWkJLzZDIP3Gp13kH4k/gviz/tq?tqx=out:json&sheet=master`);
 
       if (!masterResponse.ok) {
         throw new Error(`Failed to fetch master sheet data: ${masterResponse.status}`);
@@ -126,7 +126,7 @@ export default function AdminDashboard() {
       }
 
       // If no image found in master sheet, try WhatsApp sheet
-      const whatsappResponse = await fetch(`https://docs.google.com/spreadsheets/d/1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA/gviz/tq?tqx=out:json&sheet=Whatsapp`);
+      const whatsappResponse = await fetch(`https://docs.google.com/spreadsheets/d/1M2wyD1VCoPK36HuVUOlD6sEUjWkJLzZDIP3Gp13kH4k/gviz/tq?tqx=out:json&sheet=Whatsapp`);
 
       if (!whatsappResponse.ok) {
         throw new Error(`Failed to fetch Whatsapp sheet data: ${whatsappResponse.status}`);
@@ -208,7 +208,7 @@ export default function AdminDashboard() {
   const fetchAllStaffProfiles = async () => {
     try {
       // 1. Fetch from Master Sheet
-      const masterResponse = await fetch(`https://docs.google.com/spreadsheets/d/1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA/gviz/tq?tqx=out:json&sheet=master`);
+      const masterResponse = await fetch(`https://docs.google.com/spreadsheets/d/1M2wyD1VCoPK36HuVUOlD6sEUjWkJLzZDIP3Gp13kH4k/gviz/tq?tqx=out:json&sheet=master`);
 
       const imagesMap = {};
 
@@ -237,7 +237,7 @@ export default function AdminDashboard() {
       // 2. Fetch from WhatsApp Sheet (to fill gaps or overwrite if needed - prioritizing Master generally, but here treating as supplement)
       // Actually, let's stick to Master as primary source. If needed, we can check Whatsapp too.
       // Let's check Whatsapp too for completeness as per user profile logic
-      const whatsappResponse = await fetch(`https://docs.google.com/spreadsheets/d/1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA/gviz/tq?tqx=out:json&sheet=Whatsapp`);
+      const whatsappResponse = await fetch(`https://docs.google.com/spreadsheets/d/1M2wyD1VCoPK36HuVUOlD6sEUjWkJLzZDIP3Gp13kH4k/gviz/tq?tqx=out:json&sheet=Whatsapp`);
 
       if (whatsappResponse.ok) {
         const whatsappText = await whatsappResponse.text();
@@ -312,7 +312,7 @@ export default function AdminDashboard() {
       const base64Data = await convertToBase64(selectedFile);
 
       // Upload to Google Drive and update sheet in one call
-      const uploadResponse = await fetch('https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec', {
+      const uploadResponse = await fetch('https://script.google.com/macros/s/AKfycbxGu33pg_zLzyWXoiCgLNq7mIrVxc9FAJSZmyM3Qn-tz3U2A-rm03HYm_SEmNrzpdMP/exec', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -555,7 +555,7 @@ export default function AdminDashboard() {
     const username = sessionStorage.getItem('username');
 
     try {
-      const response = await fetch(`https://docs.google.com/spreadsheets/d/1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA/gviz/tq?tqx=out:json&sheet=${sheetName}`, { signal });
+      const response = await fetch(`https://docs.google.com/spreadsheets/d/1M2wyD1VCoPK36HuVUOlD6sEUjWkJLzZDIP3Gp13kH4k/gviz/tq?tqx=out:json&sheet=${sheetName}`, { signal });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch ${sheetName} sheet data: ${response.status}`);

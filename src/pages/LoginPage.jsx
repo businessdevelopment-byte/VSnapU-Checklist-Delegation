@@ -43,7 +43,7 @@ const LoginPage = () => {
   useEffect(() => {
     const fetchMasterData = async () => {
       const SCRIPT_URL =
-        "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec";
+        "https://script.google.com/macros/s/AKfycbxGu33pg_zLzyWXoiCgLNq7mIrVxc9FAJSZmyM3Qn-tz3U2A-rm03HYm_SEmNrzpdMP/exec";
 
       // Helper: fetch with timeout (60s to handle Apps Script cold starts)
       const fetchWithTimeout = async (timeoutMs = 60000) => {
@@ -99,8 +99,8 @@ const LoginPage = () => {
             // Columns: C=index 2 (Username), D=index 3 (Password), E=index 4 (Role), F=index 5 (Email)
             const username = row[2] ? String(row[2]).trim() : "";
             const password = row[3] ? String(row[3]).trim() : "";
-            const role     = row[4] ? String(row[4]).trim() : "user";
-            const email    = row[5] ? String(row[5]).trim() : "";
+            const role = row[4] ? String(row[4]).trim() : "user";
+            const email = row[5] ? String(row[5]).trim() : "";
 
             //console.log(`Processing row ${i}: username=${username}, role=${role}`);
 
@@ -116,8 +116,8 @@ const LoginPage = () => {
               const normalizedRole = role.toLowerCase();
 
               userCredentials[username] = password;
-              userRoles[username]       = normalizedRole;
-              userEmails[username]      = email;
+              userRoles[username] = normalizedRole;
+              userEmails[username] = email;
 
               //console.log(`Added credential for: ${username}, Role: ${normalizedRole}`);
             }
@@ -153,8 +153,8 @@ const LoginPage = () => {
 
   const logAttendance = async (username, role) => {
     const SCRIPT_URL =
-      "https://script.google.com/macros/s/AKfycbyG8qF-ShejK46Qlx10ZB5G9s0V9Gh6f8eMmLHI_oL4BcqiL88MLGWzYlnnyfHa0hsFhA/exec";
-    const SPREADSHEET_ID = "1OhcheEoNwI4h8g3uBAoAr8RQqLqYIAwYsOEpDGgT7sA";
+      "https://script.google.com/macros/s/AKfycbxGu33pg_zLzyWXoiCgLNq7mIrVxc9FAJSZmyM3Qn-tz3U2A-rm03HYm_SEmNrzpdMP/exec";
+    const SPREADSHEET_ID = "1M2wyD1VCoPK36HuVUOlD6sEUjWkJLzZDIP3Gp13kH4k";
 
     try {
       // Step 1: Fetch sheet data using GVIZ to find the user's row
