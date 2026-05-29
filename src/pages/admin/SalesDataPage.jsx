@@ -287,6 +287,11 @@ const MemoizedTaskRow = memo(({
           </label>
         )}
       </td>
+      <td className="px-3 py-4 min-w-[100px]">
+        <div className={`text-sm break-words font-medium ${isNotToday ? "text-red-600" : "text-gray-900"}`}>
+          {account["col17"] || "—"}
+        </div>
+      </td>
     </tr>
   );
 });
@@ -322,6 +327,18 @@ function AccountDataPage() {
   const [leaveStartDate, setLeaveStartDate] = useState("")
   const [leaveEndDate, setLeaveEndDate] = useState("")
   const [leaveMember, setLeaveMember] = useState("")
+  // New states for Leave Task UI (Reverted)
+  // Transfer Task modal states
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
+  const [transferStartDate, setTransferStartDate] = useState("")
+  const [transferEndDate, setTransferEndDate] = useState("")
+  const [transferMember, setTransferMember] = useState("")
+  const [transferReason, setTransferReason] = useState("");
+  const [transferFetchedTasks, setTransferFetchedTasks] = useState([]);
+  const [selectedTransferTasks, setSelectedTransferTasks] = useState(new Set());
+  const [transferSubstitute, setTransferSubstitute] = useState("");
+  const [isFetchingTransferTasks, setIsFetchingTransferTasks] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false)
 
   // Admin history selection states
   const [selectedHistoryItems, setSelectedHistoryItems] = useState([])
@@ -974,7 +991,8 @@ function AccountDataPage() {
           { id: "col13", label: "Remarks", type: "string" },
           { id: "col14", label: "Uploaded Image", type: "string" },
           { id: "col15", label: "Admin Done", type: "string" },
-          { id: "col16", label: "Leave", type: "string" }, // Added Column Q
+          { id: "col16", label: "Leave", type: "string" }, // Column Q
+          { id: "col17", label: "Assign To", type: "string" }, // Column R (Transfer Assign To)
         ]
 
         columnHeaders.forEach((header, index) => {
@@ -1448,7 +1466,7 @@ function AccountDataPage() {
           const taskDate = parseDateFromDDMMYYYY(formattedDate);
 
           if (taskDate && taskDate >= startObj && taskDate <= endObj) {
-            // ✅ Skip Sundays — no tasks are generated on Sundays
+            // ✅ Skip Sundays
             if (taskDate.getDay() === 0) return;
 
             const taskId = rowValues[1];
@@ -1518,6 +1536,202 @@ function AccountDataPage() {
       setIsSubmitting(false);
     }
   };
+
+  // Transfer Task logic (using new Date range fetching approach)
+  const handleTransferTask = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+    setTransferStartDate(dateStr);
+    setTransferEndDate(dateStr);
+    setTransferMember(""); 
+    setTransferReason("");
+    setTransferSubstitute("");
+    setTransferFetchedTasks([]);
+    setSelectedTransferTasks(new Set());
+    setIsTransferModalOpen(true);
+  };
+
+  const fetchTransferTasks = async () => {
+    if (!transferStartDate || !transferEndDate) {
+      alert("Please select both start and end dates for the transfer.");
+      return;
+    }
+
+    if (userRole === "admin" && !transferMember) {
+      alert("Please select a member for the transfer.");
+      return;
+    }
+
+    const startObj = new Date(transferStartDate);
+    startObj.setHours(0, 0, 0, 0);
+    const endObj = new Date(transferEndDate);
+    endObj.setHours(23, 59, 59, 999);
+
+    if (startObj > endObj) {
+      alert("Start date cannot be after end date.");
+      return;
+    }
+
+    setIsFetchingTransferTasks(true);
+    try {
+      const response = await fetch(`${CONFIG.APPS_SCRIPT_URL}?sheet=${CONFIG.SHEET_NAME}&action=fetch`);
+      if (!response.ok) throw new Error("Failed to fetch data to calculate transfer");
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        const jsonStart = text.indexOf("{");
+        const jsonEnd = text.lastIndexOf("}");
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          data = JSON.parse(text.substring(jsonStart, jsonEnd + 1));
+        } else {
+          throw new Error("Invalid format from server");
+        }
+      }
+
+      let rows = [];
+      if (data.table && data.table.rows) {
+        rows = data.table.rows;
+      } else if (Array.isArray(data)) {
+        rows = data;
+      } else if (data.values) {
+        rows = data.values.map((row) => ({ c: row.map((val) => ({ v: val })) }));
+      }
+
+      const tasksFetched = [];
+
+      rows.forEach((row, rowIndex) => {
+        if (rowIndex === 0) return;
+        let rowValues = [];
+        if (row.c) {
+          rowValues = row.c.map(cell => (cell && cell.v !== undefined ? cell.v : ""));
+        } else if (Array.isArray(row)) {
+          rowValues = row;
+        } else return;
+
+        const assignedTo = rowValues[4] || "Unassigned";
+
+        let isUserMatch = false;
+        if (userRole === "admin") {
+          if (transferMember) {
+            isUserMatch = assignedTo.toLowerCase() === transferMember.toLowerCase();
+          } else {
+            isUserMatch = assignedTo.toLowerCase() === username.toLowerCase();
+          }
+        } else {
+          isUserMatch = assignedTo.toLowerCase() === username.toLowerCase();
+        }
+
+        if (isUserMatch) {
+          const colG = rowValues[6];
+          const formattedDate = parseGoogleSheetsDateTime(colG ? String(colG).trim() : "");
+          const taskDate = parseDateFromDDMMYYYY(formattedDate);
+
+          if (taskDate && taskDate >= startObj && taskDate <= endObj) {
+            // Skip Sundays
+            if (taskDate.getDay() === 0) return;
+
+            const taskId = rowValues[1];
+            if (taskId) {
+               tasksFetched.push({
+                  rowIndex: rowIndex + 1,
+                  taskId: taskId,
+                  desc: rowValues[5] || "",
+                  date: formattedDate,
+                  dept: rowValues[2] || "",
+                  givenBy: rowValues[3] || "",
+                  originalName: rowValues[4] || "",
+                  rowValues: rowValues 
+               });
+            }
+          }
+        }
+      });
+
+      if (tasksFetched.length === 0) {
+        alert("No tasks found for the selected date range and user.");
+      }
+      setTransferFetchedTasks(tasksFetched);
+      setSelectedTransferTasks(new Set(tasksFetched.map(t => t.taskId)));
+
+    } catch (error) {
+       console.error("Fetch transfer tasks error:", error);
+       alert("Error fetching tasks. Please try again.");
+    } finally {
+       setIsFetchingTransferTasks(false);
+    }
+  };
+
+  const confirmTransferShift = async () => {
+    if (selectedTransferTasks.size === 0) {
+       alert("Please select at least one task to shift.");
+       return;
+    }
+    if (!transferSubstitute) {
+       alert("Please select a substitute (Assign To) for the tasks.");
+       return;
+    }
+    
+    setIsTransferring(true);
+    try {
+      const tasksToUpdate = transferFetchedTasks.filter(t => selectedTransferTasks.has(t.taskId));
+
+      const BATCH_SIZE = 5;
+      const failures = [];
+
+      for (let i = 0; i < tasksToUpdate.length; i += BATCH_SIZE) {
+        const batch = tasksToUpdate.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map(async (task) => {
+            try {
+              const rowDataPayload = Array(19).fill("");
+              const originalName = task.originalName || "";
+              const newName = transferSubstitute;
+              
+              rowDataPayload[4] = newName; // New assignee in Column E
+              rowDataPayload[17] = `Transfer from ${originalName} to ${newName}`; // Transfer info in Column R
+              rowDataPayload[18] = transferReason; // Remarks in Column S
+
+              const formData = new FormData();
+              formData.append("sheetName", CONFIG.SHEET_NAME);
+              formData.append("action", "update");
+              formData.append("rowIndex", task.rowIndex);
+              formData.append("rowData", JSON.stringify(rowDataPayload));
+
+              const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+                method: "POST",
+                body: formData,
+              });
+              const json = await res.json();
+              return json;
+            } catch (err) {
+              return { success: false, error: err.message };
+            }
+          })
+        );
+        batchResults.forEach(r => { if (!r.success) failures.push(r); });
+      }
+
+      if (failures.length > 0) {
+        console.error("Some updates failed", failures);
+        alert(`Failed to update ${failures.length} tasks.`);
+      } else {
+        setSuccessMessage(`Successfully Transferred ${tasksToUpdate.length} tasks!`);
+        setIsTransferModalOpen(false);
+        fetchSheetData();
+      }
+    } catch (error) {
+       console.error("Error submitting Transfer:", error);
+       alert("Error occurred during Transfer submission. Please try again.");
+    } finally {
+       setIsTransferring(false);
+    }
+  };
+
   const selectedItemsCount = selectedItems.size
 
   // Filter Section Component// Filter Section Component
@@ -1779,6 +1993,14 @@ function AccountDataPage() {
                 >
                   {isSubmitting ? "Processing..." : "Leave"}
                 </button>
+                {/* Transfer Task Button Mobile */}
+                <button
+                  onClick={handleTransferTask}
+                  disabled={isSubmitting}
+                  className="w-full bg-blue-500 hover:bg-blue-600 py-3 px-4 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                >
+                  Transfer Task
+                </button>
               </>
             )}
           </div>
@@ -1834,6 +2056,15 @@ function AccountDataPage() {
                   className="bg-red-100 hover:bg-red-200 text-red-600 px-6 py-2 rounded-md focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
                 >
                   {isSubmitting ? "..." : "Leave"}
+                </button>
+
+                {/* Transfer Task Button Desktop */}
+                <button
+                  onClick={handleTransferTask}
+                  disabled={isSubmitting}
+                  className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-6 py-2 rounded-md focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                >
+                  Transfer Task
                 </button>
 
                 <button
@@ -2482,6 +2713,9 @@ function AccountDataPage() {
                       <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[120px]">
                         Upload Image
                       </th>
+                      <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[100px]">
+                        Assign To
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -2920,6 +3154,176 @@ function AccountDataPage() {
           </div>
         </div>
       )}
+
+      {isTransferModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-5xl mx-4 my-8">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-purple-800">Transfer Tasks</h2>
+                <p className="text-sm text-purple-600">Reassign tasks to another member</p>
+              </div>
+              <button onClick={() => setIsTransferModalOpen(false)} className="text-gray-500 hover:text-gray-700">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Top Form */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-purple-50 p-4 rounded-lg border border-purple-100">
+              {userRole === "admin" && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">TRANSFER FROM</label>
+                  <select
+                    value={transferMember}
+                    onChange={(e) => setTransferMember(e.target.value)}
+                    className="w-full border border-purple-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm bg-white"
+                  >
+                    <option value="">Select Member...</option>
+                    {membersList.map((member) => (
+                      <option key={member} value={member}>
+                        {member}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
+              <div className={userRole !== "admin" ? "md:col-span-2" : "md:col-span-2 lg:col-span-1"}>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">TRANSFER REMARK / REASON</label>
+                  <input
+                    type="text"
+                    value={transferReason}
+                    onChange={(e) => setTransferReason(e.target.value)}
+                    placeholder="e.g. Workload distribution..."
+                    className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm bg-white"
+                  />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">START DATE</label>
+                <input
+                  type="date"
+                  value={transferStartDate}
+                  onChange={(e) => setTransferStartDate(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">END DATE</label>
+                <input
+                  type="date"
+                  value={transferEndDate}
+                  onChange={(e) => setTransferEndDate(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm bg-white"
+                />
+              </div>
+              
+              <div className="lg:col-span-4 flex justify-center mt-2">
+                <button
+                  onClick={fetchTransferTasks}
+                  disabled={isFetchingTransferTasks}
+                  className="w-full md:w-auto px-12 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-medium text-sm disabled:opacity-50"
+                >
+                  {isFetchingTransferTasks ? "Loading..." : "Show Tasks"}
+                </button>
+              </div>
+            </div>
+
+            {/* Bottom Table section */}
+            {transferFetchedTasks.length > 0 && (
+              <div className="border-t border-purple-100 pt-6 mt-6">
+                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 bg-blue-50/50 p-4 rounded-md border border-blue-100">
+                    <div>
+                       <h3 className="text-md font-bold text-blue-800 mb-1">Tasks for Transfer</h3>
+                       <p className="text-xs text-blue-600">{transferFetchedTasks.length} task(s) found for {transferMember || username} between {transferStartDate} and {transferEndDate}</p>
+                    </div>
+                    <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 mt-4 md:mt-0">
+                       <input
+                          type="text"
+                          placeholder="Select substitute..."
+                          value={transferSubstitute}
+                          onChange={(e) => setTransferSubstitute(e.target.value)}
+                          className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 min-w-[200px] bg-white"
+                          list="transfer-substitute-list"
+                       />
+                       <datalist id="transfer-substitute-list">
+                          {membersList.map((member) => (
+                             <option key={member} value={member} />
+                          ))}
+                       </datalist>
+                       <button
+                          onClick={confirmTransferShift}
+                          disabled={isTransferring || selectedTransferTasks.size === 0}
+                          className="px-6 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md transition-colors text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                       >
+                          <CheckCircle2 size={16} /> Confirm Transfer ({selectedTransferTasks.size})
+                       </button>
+                    </div>
+                 </div>
+
+                 {/* Table */}
+                 <div className="overflow-x-auto border border-gray-200 rounded-md max-h-[50vh] overflow-y-auto">
+                    <table className="min-w-full divide-y divide-gray-200 relative">
+                       <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
+                          <tr>
+                             <th className="px-4 py-3 text-left w-12 bg-gray-50">
+                                <input
+                                   type="checkbox"
+                                   checked={selectedTransferTasks.size > 0 && selectedTransferTasks.size === transferFetchedTasks.length}
+                                   onChange={(e) => {
+                                      if (e.target.checked) {
+                                         setSelectedTransferTasks(new Set(transferFetchedTasks.map(t => t.taskId)));
+                                      } else {
+                                         setSelectedTransferTasks(new Set());
+                                      }
+                                   }}
+                                   className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                                />
+                             </th>
+                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">#</th>
+                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">TASK</th>
+                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">TYPE</th>
+                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">DATE</th>
+                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">DEPARTMENT</th>
+                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">GIVEN BY</th>
+                          </tr>
+                       </thead>
+                       <tbody className="bg-white divide-y divide-gray-100">
+                          {transferFetchedTasks.map((task, index) => (
+                             <tr key={task.taskId} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-4 py-4">
+                                   <input
+                                      type="checkbox"
+                                      checked={selectedTransferTasks.has(task.taskId)}
+                                      onChange={(e) => {
+                                         const newSelected = new Set(selectedTransferTasks);
+                                         if (e.target.checked) newSelected.add(task.taskId);
+                                         else newSelected.delete(task.taskId);
+                                         setSelectedTransferTasks(newSelected);
+                                      }}
+                                      className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                                   />
+                                </td>
+                                <td className="px-4 py-4 text-sm text-gray-500">{index + 1}</td>
+                                <td className="px-4 py-4 text-sm font-medium text-gray-900 min-w-[200px]">{task.desc}</td>
+                                <td className="px-4 py-4">
+                                   <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-1 rounded">CHECK</span>
+                                </td>
+                                <td className="px-4 py-4 text-sm text-gray-500 whitespace-nowrap">{task.date}</td>
+                                <td className="px-4 py-4 text-sm text-gray-500">{task.dept}</td>
+                                <td className="px-4 py-4 text-sm text-gray-900 font-medium">{task.givenBy}</td>
+                             </tr>
+                          ))}
+                       </tbody>
+                    </table>
+                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
 
     </AdminLayout>
   );
